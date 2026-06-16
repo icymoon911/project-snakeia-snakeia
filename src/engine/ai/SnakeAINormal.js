@@ -79,35 +79,35 @@ export default class SnakeAINormal extends SnakeAI {
 
   updatePath(snake) {
     const currentPosition = snake.getHeadPosition();
-    const targetFruit = this.aiFruitGoalsSorted.shift();
 
-    if(!currentPosition || !targetFruit) {
+    if(!currentPosition) {
       return { calculatedPath: null, targetFruit: null };
     }
 
-    const targetPosition = targetFruit.position;
+    while(this.aiFruitGoalsSorted.length > 0) {
+      const targetFruit = this.aiFruitGoalsSorted.shift();
+      const targetPosition = targetFruit.position;
 
-    const grid = snake.grid.getGraph(false);
+      const grid = snake.grid.getGraph(false);
 
-    const graph = new Lowlight.Astar.Configuration(grid, {
-      order: "yx",
-      torus: this.enableTorus ? true : false,
-      diagonals: false,
-      cutting: false,
-      static: true,
-      cost(a, b) { return b == 1 ? null : 1; }
-    });
+      const graph = new Lowlight.Astar.Configuration(grid, {
+        order: "yx",
+        torus: this.enableTorus ? true : false,
+        diagonals: false,
+        cutting: false,
+        static: true,
+        cost(a, b) { return b == 1 ? null : 1; }
+      });
 
-    const calculatedPath = this.calculatePath(graph, currentPosition, targetPosition);
+      const calculatedPath = this.calculatePath(graph, currentPosition, targetPosition);
 
-    if(calculatedPath.length < 1) {
-      // If no path found, we try the next fruit
-      return this.updatePath(snake);
+      if(calculatedPath.length >= 1) {
+        this.oldTargetFruit = targetFruit;
+        return { calculatedPath, targetFruit };
+      }
     }
 
-    this.oldTargetFruit = targetFruit;
-
-    return { calculatedPath, targetFruit };
+    return { calculatedPath: null, targetFruit: null };
   }
 
   calculatePath(graph, currentPosition, fruitTarget) {

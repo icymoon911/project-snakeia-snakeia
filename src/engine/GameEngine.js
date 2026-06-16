@@ -533,7 +533,9 @@ export default class GameEngine {
 
   handleStuckFruits() {
     // If the fruit is in a corridor, we set it in a new cell
-    for(const fruitPos of this.grid.fruitPositions) {
+    const fruitPositionsCopy = [...this.grid.fruitPositions];
+
+    for(const fruitPos of fruitPositionsCopy) {
       if(!this.scoreMax && (this.grid.detectCorridor(fruitPos) || this.grid.isFruitSurrounded(fruitPos, true)) && !this.clientSidePredictionsMode) {
         this.grid.removeFruit(fruitPos);
         this.grid.setFruits(this.getNBPlayerAlive());

@@ -267,11 +267,11 @@ test("wall should end game", async () => {
     const theGrid = new Grid(10, 5, false, true, false, null, false);
 
     const theSnake = new Snake(Constants.Direction.RIGHT, 3, theGrid);
-    
+
     const mockRandom = jest.fn();
     mockRandom.mockReturnValueOnce(new Position(5, 1)).mockReturnValueOnce(new Position(5, 3)).mockReturnValue(new Position(2, 2)).mockReturnValue(new Position(1, 1));
     jest.spyOn(Grid.prototype, "getRandomPosition").mockImplementation(mockRandom);
-    
+
     const engine = new GameEngine(theGrid, [theSnake]);
     await engine.init();
     engine.paused = false;
@@ -280,7 +280,7 @@ test("wall should end game", async () => {
     expect(theSnake.errorInit).toBe(false);
     expect(theSnake.score).toBe(0);
     expect(theSnake.getHeadPosition()).toEqual({ x: 7, y: 1, direction: Constants.Direction.RIGHT });
-    
+
     for(let i = 0; i < 2; i++) {
       engine.doTick();
     }
@@ -288,4 +288,175 @@ test("wall should end game", async () => {
     expect(theSnake.gameOver).toBe(true);
     expect(engine.gameOver).toBe(true);
     expect(theSnake.score).toBe(0);
+});
+
+test("Grid constructor: seedGame should be independent from seedGrid", () => {
+  const grid = new Grid(10, 10, false, false, false, null, false, 42, 99);
+  expect(grid.seedGrid).toBe("42");
+  expect(grid.seedGame).toBe("99");
+  expect(grid.seedGrid).not.toBe(grid.seedGame);
+});
+
+test("Grid constructor: seedGame should be undefined when not provided", () => {
+  const grid = new Grid(10, 10, false, false, false, null, false, 42);
+  expect(grid.seedGrid).toBe("42");
+  expect(grid.seedGame).toBeUndefined();
+});
+
+test("Grid constructor: both seeds independent after reset", () => {
+  const grid = new Grid(10, 10, false, false, false, null, false, 42, 99);
+  grid.reset();
+  // After reset, rngGrid and rngGame should produce different sequences
+  const valGrid = grid.rngGrid();
+  const valGame = grid.rngGame();
+  expect(valGrid).not.toBe(valGame);
+});
+
+test("SnakeAINormal.updatePath should not stack overflow when all fruits unreachable", async () => {
+  // Create a grid where the fruit is walled off from the snake
+  const customGrid = [
+    [0, 0, 0, 3, 0],
+    [0, 0, 0, 3, 0],
+    [0, 0, 0, 3, 0],
+    [0, 0, 0, 3, 0],
+    [0, 0, 0, 3, 0],
+  ];
+  const theGrid = new Grid(5, 5, false, false, false, customGrid, false, 1, 2);
+  theGrid.reset();
+  theGrid.init();
+
+  // Place snake manually on the left side
+  const theSnake = new Snake(Constants.Direction.RIGHT, 3, theGrid, Constants.PlayerType.AI, Constants.AiLevel.DEFAULT);
+  theSnake.queue = [
+    new Position(2, 0, Constants.Direction.RIGHT),
+    new Position(1, 0, Constants.Direction.RIGHT),
+    new Position(0, 0, Constants.Direction.RIGHT),
+  ];
+  for(const pos of theSnake.queue) {
+    theGrid.set(Constants.CaseType.SNAKE, pos);
+  }
+
+  await theSnake.initAI();
+
+  // Place a fruit on the unreachable right side (behind the wall)
+  const unreachableFruit = new Position(4, 2);
+  theGrid.set(Constants.CaseType.FRUIT, unreachableFruit);
+  theGrid.fruitPositions = [unreachableFruit];
+
+  // Call ai() which calls updatePath - should NOT throw or stack overflow
+  expect(() => theSnake.ai()).not.toThrow();
+  // updatePath should return null path since fruit is unreachable
+  expect(theSnake.snakeAI.path).toEqual([]);
+});
+
+test("handleStuckFruits should process all stuck fruits without skipping", () => {
+  // Create a grid with corridor positions for fruits
+  // Position (1,1) has walls on top, left, right → 3 dead neighbors → corridor
+  // Position (3,3) has walls on top, left, right → 3 dead neighbors → corridor
+  const customGrid = [
+    [3, 3, 3, 3, 3],
+    [3, 0, 3, 0, 3],
+    [3, 3, 0, 3, 3],
+    [3, 0, 0, 0, 3],
+    [3, 3, 3, 3, 3],
+  ];
+
+  const theGrid = new Grid(5, 5, false, false, false, customGrid, false, 1, 2);
+  theGrid.reset();
+  theGrid.init();
+
+  // Place a snake to satisfy engine requirements
+  const snake1 = new Snake(Constants.Direction.RIGHT, 2, theGrid, Constants.PlayerType.AI, Constants.AiLevel.MOCK);
+  snake1.queue = [
+    new Position(2, 3, Constants.Direction.RIGHT),
+    new Position(1, 3, Constants.Direction.RIGHT),
+  ];
+  for(const pos of snake1.queue) {
+    theGrid.set(Constants.CaseType.SNAKE, pos);
+  }
+
+  // Place two fruits in corridor positions
+  const fruit1 = new Position(1, 1);
+  const fruit2 = new Position(3, 1);
+  theGrid.set(Constants.CaseType.FRUIT, fruit1);
+  theGrid.set(Constants.CaseType.FRUIT, fruit2);
+  theGrid.fruitPositions = [fruit1, fruit2];
+
+  // Verify both are corridors
+  expect(theGrid.detectCorridor(fruit1)).toBe(true);
+  expect(theGrid.detectCorridor(fruit2)).toBe(true);
+
+  // Create engine without full init to avoid fruit placement loops
+  const engine = new GameEngine(theGrid, [snake1]);
+  engine.grid = theGrid;
+  engine.snakes = [snake1];
+
+  // handleStuckFruits should process BOTH fruits (iterate over copy)
+  engine.handleStuckFruits();
+
+  // Both original corridor fruits should have been removed
+  const hasOldFruit1 = theGrid.fruitPositions.some(p => p.equals(fruit1));
+  const hasOldFruit2 = theGrid.fruitPositions.some(p => p.equals(fruit2));
+
+  expect(hasOldFruit1).toBe(false);
+  expect(hasOldFruit2).toBe(false);
+});
+
+test("Snake.copy() should preserve grid structure including walls", async () => {
+  const theGrid = new Grid(10, 10, true, true, false, null, false, 1, 2);
+  theGrid.reset();
+  theGrid.init();
+
+  const mockRandom = jest.fn();
+  mockRandom.mockReturnValueOnce(new Position(5, 5)).mockReturnValue(new Position(5, 5));
+  jest.spyOn(Grid.prototype, "getRandomPosition").mockImplementation(mockRandom);
+
+  const theSnake = new Snake(Constants.Direction.RIGHT, 3, theGrid, Constants.PlayerType.AI, Constants.AiLevel.DEFAULT);
+  await theSnake.init();
+
+  const copiedSnake = theSnake.copy();
+
+  // Verify grid dimensions
+  expect(copiedSnake.grid.width).toBe(theGrid.width);
+  expect(copiedSnake.grid.height).toBe(theGrid.height);
+
+  // Verify walls are preserved
+  expect(copiedSnake.grid.generateWalls).toBe(theGrid.generateWalls);
+  expect(copiedSnake.grid.borderWalls).toBe(theGrid.borderWalls);
+  expect(copiedSnake.grid.maze).toBe(theGrid.maze);
+
+  // Verify grid cells match exactly
+  for(let i = 0; i < theGrid.height; i++) {
+    for(let j = 0; j < theGrid.width; j++) {
+      expect(copiedSnake.grid.get(new Position(j, i))).toBe(theGrid.get(new Position(j, i)));
+    }
+  }
+
+  // Verify snake queue is copied
+  expect(copiedSnake.queue.length).toBe(theSnake.queue.length);
+
+  // Verify the copied snake grid is independent (modifying copy doesn't affect original)
+  copiedSnake.grid.set(Constants.CaseType.EMPTY, theSnake.getHeadPosition());
+  expect(theGrid.get(theSnake.getHeadPosition())).toBe(Constants.CaseType.SNAKE);
+});
+
+test("Snake.copy() should preserve maze grid structure", async () => {
+  const theGrid = new Grid(11, 11, false, false, true, null, false, 1, 2);
+  theGrid.reset();
+  theGrid.init();
+
+  const theSnake = new Snake(Constants.Direction.RIGHT, 3, theGrid, Constants.PlayerType.AI, Constants.AiLevel.DEFAULT);
+  await theSnake.init();
+
+  const copiedSnake = theSnake.copy();
+
+  // Verify maze property is preserved
+  expect(copiedSnake.grid.maze).toBe(true);
+
+  // Verify all wall/empty cells match
+  for(let i = 0; i < theGrid.height; i++) {
+    for(let j = 0; j < theGrid.width; j++) {
+      expect(copiedSnake.grid.get(new Position(j, i))).toBe(theGrid.get(new Position(j, i)));
+    }
+  }
 });

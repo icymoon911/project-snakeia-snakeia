@@ -459,11 +459,24 @@ export default class Snake {
   }
 
   copy() {
-    const snake = new Snake(this.direction, 3, new Grid(this.grid.width, this.grid.height, false, false), this.player, this.aiLevel, false);
+    const newGrid = new Grid(this.grid.width, this.grid.height, this.grid.generateWalls, this.grid.borderWalls, this.grid.maze, this.grid.customGrid, this.grid.mazeForceAuto, this.grid.seedGrid, this.grid.seedGame, this.grid.probGoldFruitIncrease);
+    const snake = new Snake(this.direction, 3, newGrid, this.player, this.aiLevel, false);
 
-    for(let i = 0; i < snake.grid.height; i++) {
-      for(let j = 0; j < snake.grid.width; j++) {
-        snake.grid.set(this.grid.get(new Position(j, i)), new Position(j, i));
+    // Copy the grid state from the original
+    snake.grid.fruitPositions = this.grid.fruitPositions.map(pos => pos.copy());
+    snake.grid.fruitPosGold = this.grid.fruitPosGold ? this.grid.fruitPosGold.copy() : null;
+    snake.grid.hasOpponents = this.grid.hasOpponents;
+
+    if(this.grid.grid) {
+      snake.grid.grid = new Array(this.grid.height);
+      snake.grid.initialGrid = this.grid.initialGrid ? new Array(this.grid.height) : undefined;
+
+      for(let i = 0; i < this.grid.height; i++) {
+        snake.grid.grid[i] = this.grid.grid[i].slice();
+
+        if(this.grid.initialGrid) {
+          snake.grid.initialGrid[i] = this.grid.initialGrid[i].slice();
+        }
       }
     }
 
