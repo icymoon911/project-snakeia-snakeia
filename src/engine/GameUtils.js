@@ -19,6 +19,82 @@
 import GameConstants from "../engine/Constants.js";
 
 export default {
+  getNBPlayer: function(snakes, type) {
+    let numPlayer = 0;
+
+    if(snakes != null) {
+      for(let i = 0; i < snakes.length; i++) {
+        if(snakes[i] && snakes[i].player == type) {
+          numPlayer++;
+        }
+      }
+    }
+
+    return numPlayer;
+  },
+  getPlayer: function(snakes, num, type) {
+    let numPlayer = 0;
+
+    if(snakes != null) {
+      for(let i = 0; i < snakes.length; i++) {
+        if(snakes[i] && snakes[i].player == type) {
+          numPlayer++;
+        }
+
+        if(numPlayer == num) {
+          return snakes[i];
+        }
+      }
+    }
+
+    return null;
+  },
+  getNBPlayerAlive: function(snakes) {
+    let numPlayer = 0;
+
+    if(snakes != null) {
+      for(const snake of snakes) {
+        if(!snake.gameOver) {
+          numPlayer++;
+        }
+      }
+    }
+
+    return numPlayer;
+  },
+  buildStateSnapshot: function(engine, extras) {
+    const data = {
+      paused: engine.paused,
+      isReseted: engine.isReseted,
+      exited: engine.exited,
+      grid: engine.grid,
+      numFruit: engine.numFruit,
+      ticks: engine.ticks,
+      scoreMax: engine.scoreMax,
+      gameOver: engine.gameOver,
+      gameFinished: engine.gameFinished,
+      gameMazeWin: engine.gameMazeWin,
+      starting: engine.starting,
+      initialSpeed: engine.initialSpeed,
+      speed: engine.speed,
+      snakes: engine.snakes,
+      countBeforePlay: engine.countBeforePlay,
+      killed: engine.killed,
+      errorOccurred: engine.errorOccurred,
+      aiStuck: engine.aiStuck,
+      engineLoading: engine.engineLoading
+    };
+
+    if(extras) {
+      const keys = Object.keys(extras);
+
+      for(let i = 0; i < keys.length; i++) {
+        data[keys[i]] = extras[keys[i]];
+      }
+    }
+
+    return data;
+  },
   randRange: function(min, max, rng) { // Return an integer between min (inclusive) and max (inclusive)
     return Math.floor((rng ? rng() : Math.random()) * (max - min + 1)) + min;
   },

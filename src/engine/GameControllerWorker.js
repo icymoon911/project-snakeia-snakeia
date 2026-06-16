@@ -21,6 +21,20 @@ import Grid from "./Grid.js";
 import Snake from "./Snake.js";
 import Position from "./Position.js";
 
+// Maps worker message keys to reactor event names — same convention as GameController._setupEventForwarding
+const WORKER_EVENT_MAP = {
+  reset: "onReset",
+  start: "onStart",
+  pause: "onPause",
+  continue: "onContinue",
+  stop: "onStop",
+  exit: "onExit",
+  kill: "onKill",
+  scoreIncreased: "onScoreIncreased",
+  update: "onUpdate",
+  updateCounter: "onUpdateCounter"
+};
+
 export default class GameControllerWorker extends GameController {
   constructor(game, ui) {
     super(game, ui);
@@ -87,7 +101,7 @@ export default class GameControllerWorker extends GameController {
             grid = Object.assign(new Grid(), data["grid"]);
             data["grid"] = grid;
           }
-          
+
           if(Object.prototype.hasOwnProperty.call(data, "snakes") && data["snakes"] != null) {
             for(let i = 0; i < data["snakes"].length; i++) {
               data["snakes"][i].grid = grid;
@@ -98,48 +112,26 @@ export default class GameControllerWorker extends GameController {
               }
             }
           }
-          
+
+          // Sync state to UI + engine (same path as local and socket controllers)
           this.update(key, data);
-          
-          switch(key) {
-          case "init":
+
+          // Dispatch the corresponding reactor event if one exists
+          const reactorEvent = WORKER_EVENT_MAP[key];
+
+          if(reactorEvent) {
+            this.reactor.dispatchEvent(reactorEvent);
+          }
+
+          // Handle special cases that need extra logic beyond update + dispatch
+          if(key === "init") {
             this.workerReady = true;
             this.update("init", { "engineLoading": false });
             this.passQueuedMessages();
             await this.gameUI.startAfterEngineInit();
             resolve();
-            break;
-          case "reset":
-            this.reactor.dispatchEvent("onReset");
-            break;
-          case "start":
-            this.reactor.dispatchEvent("onStart");
-            break;
-          case "pause":
-            this.reactor.dispatchEvent("onPause");
-            break;
-          case "continue":
-            this.reactor.dispatchEvent("onContinue");
-            break;
-          case "stop":
-            this.reactor.dispatchEvent("onStop");
-            break;
-          case "exit":
-            this.reactor.dispatchEvent("onExit");
-            break;
-          case "kill":
-            this.reactor.dispatchEvent("onKill");
+          } else if(key === "kill") {
             this.worker.terminate();
-            break;
-          case "scoreIncreased":
-            this.reactor.dispatchEvent("onScoreIncreased");
-            break;
-          case "update":
-            this.reactor.dispatchEvent("onUpdate");
-            break;
-          case "updateCounter":
-            this.reactor.dispatchEvent("onUpdateCounter");
-            break;
           }
         }
       };

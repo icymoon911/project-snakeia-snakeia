@@ -310,49 +310,15 @@ export default class GameEngine {
   }
 
   getNBPlayer(type) {
-    let numPlayer = 0;
-
-    if(this.snakes != null) {
-      for(const snake of this.snakes) {
-        if(snake.player == type) {
-          numPlayer++;
-        }
-      }
-    }
-
-    return numPlayer;
+    return GameUtils.getNBPlayer(this.snakes, type);
   }
 
   getPlayer(num, type) {
-    let numPlayer = 0;
-
-    if(this.snakes != null) {
-      for(const snake of this.snakes) {
-        if(snake.player == type) {
-          numPlayer++;
-        }
-
-        if(numPlayer == num) {
-          return snake;
-        }
-      }
-    }
-
-    return null;
+    return GameUtils.getPlayer(this.snakes, num, type);
   }
 
   getNBPlayerAlive() {
-    let numPlayer = 0;
-
-    if(this.snakes != null) {
-      for(const snake of this.snakes) {
-        if(!snake.gameOver) {
-          numPlayer++;
-        }
-      }
-    }
-
-    return numPlayer;
+    return GameUtils.getNBPlayerAlive(this.snakes);
   }
 
   tick() {

@@ -17,39 +17,65 @@
  * along with "SnakeIA".  If not, see <http://www.gnu.org/licenses/>.
  */
 import GameConstants from "./Constants.js";
+import GameUtils from "./GameUtils.js";
 import Reactor from "./Reactor.js";
+
+// All events the engine can emit that the controller must forward to downstream listeners
+const ENGINE_EVENT_NAMES = [
+  "onStart", "onPause", "onContinue", "onReset", "onStop",
+  "onExit", "onKill", "onScoreIncreased", "onUpdate", "onUpdateCounter"
+];
+
+// Engine fields that should be exposed directly on the controller (via getters/setters)
+const ENGINE_PROXY_FIELDS = [
+  "grid", "snakes", "paused", "isReseted", "exited", "gameOver",
+  "starting", "scoreMax", "gameFinished", "errorOccurred",
+  "clientSidePredictionsMode"
+];
+
+// Common UI-only fields that are reset on every game event (menus closing, etc.)
+const UI_RESET_FIELDS = {
+  confirmReset: false,
+  confirmExit: false,
+  getInfos: false,
+  getInfosGame: false,
+  getInfosControls: false,
+  getInfosGoal: false
+};
 
 export default class GameController {
   constructor(engine, ui) {
     this.gameUI = ui;
     this.gameEngine = engine;
-    // Copy of game engine variables
-    this.grid = null;
-    this.snakes = null;
+
+    // Controller's own state (NOT proxied to engine)
     this.lastKey = -1;
-    this.paused = false;
-    this.isReseted = false;
-    this.exited = false;
-    this.gameOver = false;
-    this.starting = false;
-    this.scoreMax = false;
-    this.gameFinished = false;
-    this.errorOccurred = false;
-    this.clientSidePredictionsMode = false;
     this.currentPlayer = null;
     this.onlineMode = false;
+
+    // Proxy engine state fields through getters/setters so the controller never holds
+    // its own copy — reading always goes to the engine, writing always goes to the engine.
+    for(let i = 0; i < ENGINE_PROXY_FIELDS.length; i++) {
+      const field = ENGINE_PROXY_FIELDS[i];
+
+      Object.defineProperty(this, field, {
+        get() {
+          return this.gameEngine[field];
+        },
+        set(value) {
+          this.gameEngine[field] = value;
+        },
+        enumerable: true,
+        configurable: true
+      });
+    }
+
     // Events
     this.reactor = new Reactor();
-    this.reactor.registerEvent("onStart");
-    this.reactor.registerEvent("onPause");
-    this.reactor.registerEvent("onContinue");
-    this.reactor.registerEvent("onReset");
-    this.reactor.registerEvent("onStop");
-    this.reactor.registerEvent("onExit");
-    this.reactor.registerEvent("onKill");
-    this.reactor.registerEvent("onScoreIncreased");
-    this.reactor.registerEvent("onUpdate");
-    this.reactor.registerEvent("onUpdateCounter");
+
+    for(let i = 0; i < ENGINE_EVENT_NAMES.length; i++) {
+      this.reactor.registerEvent(ENGINE_EVENT_NAMES[i]);
+    }
 
     this.onReset(() => {
       if(this.gameUI) {
@@ -57,216 +83,62 @@ export default class GameController {
       }
     });
   }
-  
+
   async init() {
-    this.update("init", {
-      "snakes": this.gameEngine.snakes,
-      "grid": this.gameEngine.grid,
-      "enablePause": this.gameEngine.enablePause,
-      "enableRetry": this.gameEngine.enableRetry,
-      "paused": this.gameEngine.paused,
-      "progressiveSpeed": this.gameEngine.progressiveSpeed,
-      "offsetFrame": this.gameEngine.speed * GameConstants.Setting.TIME_MULTIPLIER,
-      "errorOccurred": this.gameEngine.errorOccurred,
-      "engineLoading": this.gameEngine.engineLoading
-    });
+    const engine = this.gameEngine;
 
-    this.gameEngine.onReset(() => {
-      this.update("reset", {
-        "paused": this.gameEngine.paused,
-        "isReseted": this.gameEngine.isReseted,
-        "exited": this.gameEngine.exited,
-        "grid": this.gameEngine.grid,
-        "numFruit": this.gameEngine.numFruit,
-        "ticks": this.gameEngine.ticks,
-        "scoreMax": this.gameEngine.scoreMax,
-        "gameOver": this.gameEngine.gameOver,
-        "gameFinished": this.gameEngine.gameFinished,
-        "gameMazeWin": this.gameEngine.gameMazeWin,
-        "starting": this.gameEngine.starting,
-        "initialSpeed": this.gameEngine.initialSpeed,
-        "speed": this.gameEngine.speed,
-        "snakes": this.gameEngine.snakes,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "offsetFrame": this.gameEngine.speed * GameConstants.Setting.TIME_MULTIPLIER,
-        "aiStuck": this.gameEngine.aiStuck,
-        "precAiStuck": false,
-        "engineLoading": this.gameEngine.engineLoading
-      });
+    this.update("init", GameUtils.buildStateSnapshot(engine, {
+      enablePause: engine.enablePause,
+      enableRetry: engine.enableRetry,
+      progressiveSpeed: engine.progressiveSpeed,
+      offsetFrame: engine.speed * GameConstants.Setting.TIME_MULTIPLIER
+    }));
 
-      this.reactor.dispatchEvent("onReset");
-    });
+    this._setupEventForwarding();
 
-    this.gameEngine.onStart(() => {
-      this.update("start", {
-        "snakes": this.gameEngine.snakes,
-        "grid": this.gameEngine.grid,
-        "starting": this.gameEngine.starting,
-        "countBeforePlay": this.gameEngine.countBeforePlay,
-        "paused": this.gameEngine.paused,
-        "isReseted": this.gameEngine.isReseted,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "engineLoading": this.gameEngine.engineLoading
-      });
-      this.reactor.dispatchEvent("onStart");
-    });
-
-    this.gameEngine.onPause(() => {
-      this.update("pause", {
-        "paused": this.gameEngine.paused,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "engineLoading": this.gameEngine.engineLoading
-      });
-      this.reactor.dispatchEvent("onPause");
-    });
-
-    this.gameEngine.onContinue(() => {
-      this.update("continue", {
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "engineLoading": this.gameEngine.engineLoading
-      });
-      this.reactor.dispatchEvent("onContinue");
-    });
-
-    this.gameEngine.onStop(() => {
-      this.update("stop", {
-        "paused": this.gameEngine.paused,
-        "scoreMax": this.gameEngine.scoreMax,
-        "gameOver": this.gameEngine.gameOver,
-        "gameFinished": this.gameEngine.gameFinished,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "engineLoading": this.gameEngine.engineLoading
-      });
-      this.reactor.dispatchEvent("onStop");
-    });
-
-    this.gameEngine.onExit(() => {
-      this.update("exit", {
-        "paused": this.gameEngine.paused,
-        "gameOver": this.gameEngine.gameOver,
-        "gameFinished": this.gameEngine.gameFinished,
-        "exited": this.gameEngine.exited,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "engineLoading": this.gameEngine.engineLoading
-      });
-      this.reactor.dispatchEvent("onExit");
-    });
-
-    this.gameEngine.onKill(() => {
-      this.update("kill", {
-        "paused": this.gameEngine.paused,
-        "gameOver": this.gameEngine.gameOver,
-        "killed": this.gameEngine.killed,
-        "snakes": this.gameEngine.snakes,
-        "gameFinished": this.gameEngine.gameFinished,
-        "grid": this.gameEngine.grid,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "engineLoading": this.gameEngine.engineLoading
-      });
-
-      this.reactor.dispatchEvent("onKill");
-    });
-
-    this.gameEngine.onScoreIncreased(() => {
-      this.reactor.dispatchEvent("onScoreIncreased");
-    });
-
-    this.gameEngine.onUpdate(() => {
-      this.update("update", {
-        "paused": this.gameEngine.paused,
-        "isReseted": this.gameEngine.isReseted,
-        "exited": this.gameEngine.exited,
-        "grid": this.gameEngine.grid,
-        "numFruit": this.gameEngine.numFruit,
-        "ticks": this.gameEngine.ticks,
-        "scoreMax": this.gameEngine.scoreMax,
-        "gameOver": this.gameEngine.gameOver,
-        "gameFinished": this.gameEngine.gameFinished,
-        "gameMazeWin": this.gameEngine.gameMazeWin,
-        "starting": this.gameEngine.starting,
-        "initialSpeed": this.gameEngine.initialSpeed,
-        "speed": this.gameEngine.speed,
-        "snakes": this.gameEngine.snakes,
-        "countBeforePlay": this.gameEngine.countBeforePlay,
-        "offsetFrame": 0,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "aiStuck": this.gameEngine.aiStuck,
-        "engineLoading": this.gameEngine.engineLoading
-      });
-
-      this.reactor.dispatchEvent("onUpdate");
-    });
-
-    this.gameEngine.onUpdateCounter(() => {
-      this.update("updateCounter", {
-        "paused": this.gameEngine.paused,
-        "isReseted": this.gameEngine.isReseted,
-        "exited": this.gameEngine.exited,
-        "grid": this.gameEngine.grid,
-        "numFruit": this.gameEngine.numFruit,
-        "ticks": this.gameEngine.ticks,
-        "scoreMax": this.gameEngine.scoreMax,
-        "gameOver": this.gameEngine.gameOver,
-        "gameFinished": this.gameEngine.gameFinished,
-        "gameMazeWin": this.gameEngine.gameMazeWin,
-        "starting": this.gameEngine.starting,
-        "initialSpeed": this.gameEngine.initialSpeed,
-        "speed": this.gameEngine.speed,
-        "snakes": this.gameEngine.snakes,
-        "countBeforePlay": this.gameEngine.countBeforePlay,
-        "errorOccurred": this.gameEngine.errorOccurred,
-        "engineLoading": this.gameEngine.engineLoading
-      });
-      
-      this.reactor.dispatchEvent("onUpdateCounter");
-    });
-
-    if(!this.gameEngine.isInit) {
-      await this.gameEngine.init();
+    if(!engine.isInit) {
+      await engine.init();
       this.update("init", { "engineLoading": false });
       await this.gameUI.startAfterEngineInit();
+    }
+  }
+
+  _setupEventForwarding() {
+    const engine = this.gameEngine;
+    const TIME_MULT = GameConstants.Setting.TIME_MULTIPLIER;
+
+    // Define what extra fields to include in the UI sync for each event.
+    // Returning null means "skip the update() call entirely" (just dispatch the event).
+    const eventExtras = {
+      onReset: () => ({
+        ...UI_RESET_FIELDS,
+        offsetFrame: engine.speed * TIME_MULT,
+        precAiStuck: false
+      }),
+      onStart: () => ({ ...UI_RESET_FIELDS }),
+      onPause: () => ({ ...UI_RESET_FIELDS }),
+      onContinue: () => ({ ...UI_RESET_FIELDS }),
+      onStop: () => ({ ...UI_RESET_FIELDS }),
+      onExit: () => ({ ...UI_RESET_FIELDS }),
+      onKill: () => ({ ...UI_RESET_FIELDS }),
+      onScoreIncreased: null,
+      onUpdate: () => ({ offsetFrame: 0 }),
+      onUpdateCounter: () => ({})
+    };
+
+    for(let i = 0; i < ENGINE_EVENT_NAMES.length; i++) {
+      const eventName = ENGINE_EVENT_NAMES[i];
+      // "onStart" -> "start", "onScoreIncreased" -> "scoreIncreased"
+      const messageName = eventName.charAt(2).toLowerCase() + eventName.slice(3);
+      const extrasFn = eventExtras[eventName];
+
+      engine.reactor.addEventListener(eventName, () => {
+        if(extrasFn) {
+          this.update(messageName, GameUtils.buildStateSnapshot(engine, extrasFn()));
+        }
+
+        this.reactor.dispatchEvent(eventName);
+      });
     }
   }
 
@@ -357,9 +229,9 @@ export default class GameController {
 
   getCurrentPlayer() {
     if(this.snakes != null) {
-      const nbPlayers = this.getNBPlayer(GameConstants.PlayerType.HUMAN);
-      const nbPlayersHybrid = this.getNBPlayer(GameConstants.PlayerType.HYBRID_HUMAN_AI);
-    
+      const nbPlayers = GameUtils.getNBPlayer(this.snakes, GameConstants.PlayerType.HUMAN);
+      const nbPlayersHybrid = GameUtils.getNBPlayer(this.snakes, GameConstants.PlayerType.HYBRID_HUMAN_AI);
+
       for(let i = 0; i < this.snakes.length; i++) {
         if((this.currentPlayer == null && nbPlayers <= 1 && nbPlayersHybrid <= 1 && (this.snakes[i] && (this.snakes[i].player == GameConstants.PlayerType.HUMAN || this.snakes[i].player == GameConstants.PlayerType.HYBRID_HUMAN_AI)) || this.currentPlayer == (i + 1))) {
           return i;
@@ -371,35 +243,11 @@ export default class GameController {
   }
 
   getNBPlayer(type) {
-    let numPlayer = 0;
-
-    if(this.snakes != null) {
-      for(let i = 0; i < this.snakes.length; i++) {
-        if(this.snakes[i] && this.snakes[i].player == type) {
-          numPlayer++;
-        }
-      }
-    }
-
-    return numPlayer;
+    return GameUtils.getNBPlayer(this.snakes, type);
   }
 
   getPlayer(num, type) {
-    let numPlayer = 0;
-
-    if(this.snakes != null) {
-      for(let i = 0; i < this.snakes.length; i++) {
-        if(this.snakes[i] && this.snakes[i].player == type) {
-          numPlayer++;
-        }
-    
-        if(numPlayer == num) {
-          return this.snakes[i];
-        }
-      }
-    }
-
-    return null;
+    return GameUtils.getPlayer(this.snakes, num, type);
   }
 
   update(message, data, updateEngine) {
@@ -425,7 +273,7 @@ export default class GameController {
 
             this.updateEngine(dataKeys[i], data[dataKeys[i]]);
           }
-    
+
           if(Object.prototype.hasOwnProperty.call(this, dataKeys[i]) && typeof(data[dataKeys[i]]) !== "function" && typeof(this[dataKeys[i]]) !== "function") {
             this[dataKeys[i]] = data[dataKeys[i]];
           }

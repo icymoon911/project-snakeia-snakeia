@@ -29,8 +29,17 @@ export default class GameGroup {
     this.reactor.registerEvent("onReset");
     this.reactor.registerEvent("onExit");
     this.reactor.registerEvent("onScoreIncreased");
-    
+
     this.init();
+  }
+
+  // Shared iteration helper: calls fn(game, index) for each game, optionally skipping one index
+  _forEachGame(fn, exceptGame) {
+    for(let i = 0; i < this.games.length; i++) {
+      if(exceptGame == null || i != exceptGame) {
+        fn(this.games[i], i);
+      }
+    }
   }
 
   init() {
@@ -38,7 +47,7 @@ export default class GameGroup {
       if(i == 0) {
         this.games[i].enableKeyMenu = true;
       }
-      
+
       this.games[i].onPause((i => {
         this.pauseAll(i);
       }).bind(null, i));
@@ -78,11 +87,11 @@ export default class GameGroup {
   }
 
   startAll(game) {
-    for(let i = 0; i < this.games.length; i++) {
-      if(this.games[i].paused && !this.games[i].starting && (game == null || i != game)) {
-        this.games[i].start();
+    this._forEachGame(g => {
+      if(g.paused && !g.starting) {
+        g.start();
       }
-    }
+    }, game);
 
     this.reactor.dispatchEvent("onStart");
   }
@@ -92,11 +101,11 @@ export default class GameGroup {
   }
 
   pauseAll(game) {
-    for(let i = 0; i < this.games.length; i++) {
-      if(!this.games[i].paused && (game == null || i != game)) {
-        this.games[i].pause();
+    this._forEachGame(g => {
+      if(!g.paused) {
+        g.pause();
       }
-    }
+    }, game);
 
     this.reactor.dispatchEvent("onPause");
   }
@@ -106,11 +115,11 @@ export default class GameGroup {
   }
 
   resetAll(game) {
-    for(let i = 0; i < this.games.length; i++) {
-      if(!this.games[i].isReseted && (game == null || i != game)) {
-        this.games[i].reset();
+    this._forEachGame(g => {
+      if(!g.isReseted) {
+        g.reset();
       }
-    }
+    }, game);
 
     this.reactor.dispatchEvent("onReset");
   }
@@ -122,11 +131,11 @@ export default class GameGroup {
   checkExit(game) {
     let allExited = true;
 
-    for(let i = 0; i < this.games.length; i++) {
-      if(!this.games[i].exited) {
+    this._forEachGame(g => {
+      if(!g.exited) {
         allExited = false;
       }
-    }
+    });
 
     if(allExited) {
       this.reactor.dispatchEvent("onExit");
@@ -142,11 +151,11 @@ export default class GameGroup {
   checkStop() {
     let allStopped = true;
 
-    for(let i = 0; i < this.games.length; i++) {
-      if(!this.games[i].gameOver) {
+    this._forEachGame(g => {
+      if(!g.gameOver) {
         allStopped = false;
       }
-    }
+    });
 
     if(allStopped) {
       this.reactor.dispatchEvent("onStop");
@@ -158,19 +167,19 @@ export default class GameGroup {
   }
 
   stopAll(finished) {
-    for(let i = 0; i < this.games.length; i++) {
+    this._forEachGame(g => {
       if(finished) {
-        this.games[i].finish(true);
+        g.finish(true);
       } else {
-        this.games[i].stop();
+        g.stop();
       }
-    }
+    });
   }
 
   killAll() {
-    for(let i = 0; i < this.games.length; i++) {
-      this.games[i].kill();
-    }
+    this._forEachGame(g => {
+      g.kill();
+    });
   }
 
   checkOnScoreIncreased() {
@@ -184,61 +193,63 @@ export default class GameGroup {
   setDisplayFPS(value) {
     console.warn("setDisplayFPS is deprecated. Please use setDebugMode with true to display FPS");
 
-    for(let i = 0; i < this.games.length; i++) {
-      this.games[i].setDisplayFPS(value);
-    }
+    this._forEachGame(g => {
+      g.setDisplayFPS(value);
+    });
   }
 
   setDebugMode(value) {
-    for(let i = 0; i < this.games.length; i++) {
-      this.games[i].setDebugMode(value);
-    }
+    this._forEachGame(g => {
+      g.setDebugMode(value);
+    });
   }
 
   setNotification(notification) {
-    for(let i = 0; i < this.games.length; i++) {
-      this.games[i].setNotification(notification.copy());
-    }
+    this._forEachGame(g => {
+      g.setNotification(notification.copy());
+    });
   }
 
   setGoal(goal) {
-    for(let i = 0; i < this.games.length; i++) {
-      this.games[i].setGoal(goal);
-    }
+    this._forEachGame(g => {
+      g.setGoal(goal);
+    });
   }
 
   closeNotification() {
-    for(let i = 0; i < this.games.length; i++) {
-      this.games[i].setNotification(null);
-    }
+    this._forEachGame(g => {
+      g.setNotification(null);
+    });
   }
 
   errorOccurred() {
-    for(let i = 0; i < this.games.length; i++) {
-      if(this.games[i].errorOccurred) return true;
-    }
+    let found = false;
 
-    return false;
+    this._forEachGame(g => {
+      if(g.errorOccurred) found = true;
+    });
+
+    return found;
   }
 
   closeRanking() {
-    for(let i = 0; i < this.games.length; i++) {
-      this.games[i].closeRanking();
-    }
+    this._forEachGame(g => {
+      g.closeRanking();
+    });
 
     return false;
   }
 
   destroySnakes(exceptionIds, types) {
-    for(let i = 0; i < this.games.length; i++) {
-      this.games[i].destroySnakes(exceptionIds, types);
+    this._forEachGame(g => {
+      g.destroySnakes(exceptionIds, types);
 
       if(exceptionIds && Array.isArray(exceptionIds)) {
         for(let j = 0; j < exceptionIds.length; j++) {
           exceptionIds[j] -= 1;
         }
       }
-    }
+    });
   }
 
   getWinners() {
@@ -246,27 +257,29 @@ export default class GameGroup {
     const index = [];
     let maxScore = -1;
 
-    for(let i = 0; i < this.games.length; i++) {
-      for(let j = 0; j < this.games[i].snakes.length; j++) {
-        if(this.games[i].snakes[j].score > maxScore) {
-          maxScore = this.games[i].snakes[j].score;
+    // First pass: find the maximum score across all games
+    this._forEachGame(g => {
+      for(let j = 0; j < g.snakes.length; j++) {
+        if(g.snakes[j].score > maxScore) {
+          maxScore = g.snakes[j].score;
         }
       }
-    }
+    });
 
     if(maxScore >= 0) {
       let idx = 0;
 
-      for(let i = 0; i < this.games.length; i++) {
-        for(let j = 0; j < this.games[i].snakes.length; j++) {
-          if(this.games[i].snakes[j].score >= maxScore) {
-            winners.push(this.games[i].snakes[j]);
+      // Second pass: collect all snakes that match the max score
+      this._forEachGame(g => {
+        for(let j = 0; j < g.snakes.length; j++) {
+          if(g.snakes[j].score >= maxScore) {
+            winners.push(g.snakes[j]);
             index.push(idx);
           }
 
           idx++;
         }
-      }
+      });
     }
 
     return {

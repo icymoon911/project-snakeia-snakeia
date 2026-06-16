@@ -17,6 +17,7 @@
  * along with "SnakeIA".  If not, see <http://www.gnu.org/licenses/>.
  */
 import GameConstants from "./Constants.js";
+import GameUtils from "./GameUtils.js";
 import Position from "./Position.js";
 import Grid from "./Grid.js";
 import Snake from "./Snake.js";
@@ -24,48 +25,48 @@ import GameEngine from "./GameEngine.js";
 
 let game;
 
-function copySnakes(snakes) {
+function copySnakes(scakes) {
   const snakesCopy = [];
 
-  if(snakes) {
-    snakes.forEach(snake => {
+  if(scakes) {
+    scakes.forEach(snake => {
       if(snake) {
         const snakeCopy = new Snake();
-  
+
         snakeCopy.color = snake.color;
         snakeCopy.direction = snake.direction;
         snakeCopy.errorInit = snake.errorInit;
         snakeCopy.gameOver = snake.gameOver;
         snakeCopy.autoRetry = snake.autoRetry;
         snakeCopy.aiLevel = snake.aiLevel;
-  
+
         if(snake.lastTail) {
           snakeCopy.lastTail = JSON.parse(JSON.stringify(snake.lastTail));
         }
-  
+
         if(snake.lastHead) {
           snakeCopy.lastHead = JSON.parse(JSON.stringify(snake.lastHead));
         }
-  
+
         snakeCopy.lastTailMoved = snake.lastTailMoved;
         snakeCopy.lastHeadMoved = snake.lastHeadMoved;
         snakeCopy.name = snake.name;
         snakeCopy.player = snake.player;
-  
+
         if(snake.queue) {
           snakeCopy.queue = JSON.parse(JSON.stringify(snake.queue));
         }
-  
+
         snakeCopy.score = snake.score;
         snakeCopy.scoreMax = snake.scoreMax;
         snakeCopy.ticksDead = snake.ticksDead;
         snakeCopy.ticksWithoutAction = snake.ticksWithoutAction;
         snakeCopy.grid = null;
-  
+
         if(snake.snakeAI && snake.snakeAI.aiLevelText) {
           snakeCopy.snakeAI.aiLevelText = snake.snakeAI.aiLevelText;
         }
-  
+
         snakesCopy.push(snakeCopy);
       }
     });
@@ -100,6 +101,14 @@ function parseSnakes(snakes, grid) {
   return { grid: gridCopy, snakes: snakesCopy };
 }
 
+// Build a serializable snapshot of engine state, with deep-copied grid/snakes for worker boundary
+function buildSerializableSnapshot(engine, extras) {
+  const data = GameUtils.buildStateSnapshot(engine, extras);
+  data.grid = copyGrid(data.grid);
+  data.snakes = copySnakes(data.snakes);
+  return data;
+}
+
 onmessage = async e => {
   const data = e.data;
 
@@ -108,23 +117,18 @@ onmessage = async e => {
       const parsed = parseSnakes(data[1]["snakes"], data[1]["grid"]);
       const grid = parsed["grid"];
       const snakes = parsed["snakes"];
-  
+
       game = new GameEngine(grid, snakes, data[1]["speed"], data[1]["enablePause"], data[1]["enableRetry"], data[1]["progressiveSpeed"], data[1]["aiStuckLimit"], data[1]["disableStuckAIDetection"], data[1]["aiUltraModelSettings"]);
 
       game.onExit(() => {
-        self.postMessage(["exit", {
-          "paused": game.paused,
-          "gameOver": game.gameOver,
-          "gameFinished": game.gameFinished,
-          "exited": game.exited,
-          "confirmReset": false,
-          "confirmExit": false,
-          "getInfos": false,
-          "getInfosGame": false,
-          "getInfosControls": false,
-          "getInfosGoal": false,
-          "errorOccurred": game.errorOccurred
-        }]);
+        self.postMessage(["exit", buildSerializableSnapshot(game, {
+          confirmReset: false,
+          confirmExit: false,
+          getInfos: false,
+          getInfosGame: false,
+          getInfosControls: false,
+          getInfosGoal: false
+        })]);
       });
 
       await game.init();
@@ -138,169 +142,65 @@ onmessage = async e => {
       return;
     }
 
-    self.postMessage(["init", {
-      "snakes": copySnakes(game.snakes),
-      "grid": copyGrid(game.grid),
-      "enablePause": game.enablePause,
-      "enableRetry": game.enableRetry,
-      "progressiveSpeed": game.progressiveSpeed,
-      "offsetFrame": game.speed * GameConstants.Setting.TIME_MULTIPLIER,
-      "errorOccurred": game.errorOccurred
-    }]);
+    // Init message — include engine settings alongside state
+    const initData = buildSerializableSnapshot(game, {
+      enablePause: game.enablePause,
+      enableRetry: game.enableRetry,
+      progressiveSpeed: game.progressiveSpeed,
+      offsetFrame: game.speed * GameConstants.Setting.TIME_MULTIPLIER
+    });
+    self.postMessage(["init", initData]);
 
-    game.onReset(() => {
-      self.postMessage(["reset", {
-        "paused": game.paused,
-        "isReseted": game.isReseted,
-        "exited": game.exited,
-        "snakes": copySnakes(game.snakes),
-        "grid": copyGrid(game.grid),
-        "numFruit": game.numFruit,
-        "ticks": game.ticks,
-        "scoreMax": game.scoreMax,
-        "gameOver": game.gameOver,
-        "gameFinished": game.gameFinished,
-        "gameMazeWin": game.gameMazeWin,
-        "starting": game.starting,
-        "initialSpeed": game.initialSpeed,
-        "speed": game.speed,
-        "offsetFrame": game.speed * GameConstants.Setting.TIME_MULTIPLIER,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": game.errorOccurred,
-        "aiStuck": game.aiStuck,
-        "precAiStuck": false
-      }]);
-    });
+    // Set up event forwarding: each engine event → serializable snapshot → postMessage.
+    // Event configs: [eventName, messageKey, extrasFn (or null to skip snapshot)]
+    const TIME_MULT = GameConstants.Setting.TIME_MULTIPLIER;
 
-    game.onStart(() => {
-      self.postMessage(["start", {
-        "snakes": copySnakes(game.snakes),
-        "grid": copyGrid(game.grid),
-        "starting": game.starting,
-        "countBeforePlay": game.countBeforePlay,
-        "paused": game.paused,
-        "isReseted": game.isReseted,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": game.errorOccurred
-      }]);
-    });
+    const eventConfigs = [
+      ["onReset", "reset", () => ({
+        confirmReset: false, confirmExit: false, getInfos: false,
+        getInfosGame: false, getInfosControls: false, getInfosGoal: false,
+        offsetFrame: game.speed * TIME_MULT, precAiStuck: false
+      })],
+      ["onStart", "start", () => ({
+        confirmReset: false, confirmExit: false, getInfos: false,
+        getInfosGame: false, getInfosControls: false, getInfosGoal: false
+      })],
+      ["onPause", "pause", () => ({
+        confirmReset: false, confirmExit: false, getInfos: false,
+        getInfosGame: false, getInfosControls: false, getInfosGoal: false
+      })],
+      ["onContinue", "continue", () => ({
+        confirmReset: false, confirmExit: false, getInfos: false,
+        getInfosGame: false, getInfosControls: false, getInfosGoal: false
+      })],
+      ["onStop", "stop", () => ({
+        confirmReset: false, confirmExit: false, getInfos: false,
+        getInfosGame: false, getInfosControls: false, getInfosGoal: false
+      })],
+      ["onKill", "kill", () => ({
+        confirmReset: false, confirmExit: false, getInfos: false,
+        getInfosGame: false, getInfosControls: false, getInfosGoal: false
+      })],
+      ["onScoreIncreased", "scoreIncreased", null],
+      ["onUpdate", "update", () => ({ offsetFrame: 0 })],
+      ["onUpdateCounter", "updateCounter", () => ({})]
+    ];
 
-    game.onPause(() => {
-      self.postMessage(["pause", {
-        "paused": game.paused,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": game.errorOccurred
-      }]);
-    });
+    for(let i = 0; i < eventConfigs.length; i++) {
+      const [eventName, messageKey, extrasFn] = eventConfigs[i];
 
-    game.onContinue(() => {
-      self.postMessage(["continue", {
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": game.errorOccurred
-      }]);
-    });
+      game.reactor.addEventListener(eventName, () => {
+        let msgData;
 
-    game.onStop(() => {
-      self.postMessage(["stop", {
-        "paused": game.paused,
-        "scoreMax": game.scoreMax,
-        "gameOver": game.gameOver,
-        "gameFinished": game.gameFinished,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": game.errorOccurred
-      }]);
-    });
+        if(extrasFn) {
+          msgData = buildSerializableSnapshot(game, extrasFn());
+        } else {
+          msgData = {};
+        }
 
-    game.onKill(() => {
-      self.postMessage(["kill", {
-        "paused": game.paused,
-        "gameOver": game.gameOver,
-        "killed": game.killed,
-        "snakes": copySnakes(game.snakes),
-        "grid": copyGrid(game.grid),
-        "gameFinished": game.gameFinished,
-        "confirmReset": false,
-        "confirmExit": false,
-        "getInfos": false,
-        "getInfosGame": false,
-        "getInfosControls": false,
-        "getInfosGoal": false,
-        "errorOccurred": game.errorOccurred
-      }]);
-    });
-
-    game.onScoreIncreased(() => {
-      self.postMessage(["scoreIncreased", {}]);
-    });
-    
-    game.onUpdate(() => {
-      self.postMessage(["update", {
-        "paused": game.paused,
-        "isReseted": game.isReseted,
-        "exited": game.exited,
-        "snakes": copySnakes(game.snakes),
-        "grid": copyGrid(game.grid),
-        "numFruit": game.numFruit,
-        "ticks": game.ticks,
-        "scoreMax": game.scoreMax,
-        "gameOver": game.gameOver,
-        "gameFinished": game.gameFinished,
-        "gameMazeWin": game.gameMazeWin,
-        "starting": game.starting,
-        "initialSpeed": game.initialSpeed,
-        "speed": game.speed,
-        "countBeforePlay": game.countBeforePlay,
-        "offsetFrame": 0,
-        "errorOccurred": game.errorOccurred,
-        "aiStuck": game.aiStuck
-      }]);
-    });
-
-    game.onUpdateCounter(() => {
-      self.postMessage(["updateCounter", {
-        "paused": game.paused,
-        "isReseted": game.isReseted,
-        "exited": game.exited,
-        "snakes": copySnakes(game.snakes),
-        "grid": copyGrid(game.grid),
-        "numFruit": game.numFruit,
-        "ticks": game.ticks,
-        "scoreMax": game.scoreMax,
-        "gameOver": game.gameOver,
-        "gameFinished": game.gameFinished,
-        "gameMazeWin": game.gameMazeWin,
-        "starting": game.starting,
-        "initialSpeed": game.initialSpeed,
-        "speed": game.speed,
-        "countBeforePlay": game.countBeforePlay,
-        "errorOccurred": game.errorOccurred
-      }]);
-    });
+        self.postMessage([messageKey, msgData]);
+      });
+    }
   } else if(game != null) {
     const message = data[0];
 

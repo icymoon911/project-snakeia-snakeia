@@ -25,6 +25,21 @@ import GameConstants from "./Constants.js";
 import { NotificationMessage } from "jsgametools";
 import GameEngine from "./GameEngine.js";
 
+// Maps socket event names to reactor event names — same convention as GameController._setupEventForwarding
+const SOCKET_EVENT_MAP = {
+  init: null, // handled specially
+  reset: "onReset",
+  start: "onStart",
+  pause: "onPause",
+  continue: "onContinue",
+  stop: "onStop",
+  exit: "onExit",
+  kill: "onKill",
+  scoreIncreased: "onScoreIncreased",
+  update: "onUpdate",
+  updateCounter: "onUpdateCounter"
+};
+
 export default class GameControllerSocket extends GameController {
   constructor(socket, ui, enableClientSidePredictions) {
     super(new GameEngine(), ui);
@@ -52,12 +67,23 @@ export default class GameControllerSocket extends GameController {
           }
         }
       }
-      
+
       this.update(key, data, updateEngine);
     }
   }
 
+  _dispatchForSocketEvent(socketEventName) {
+    const reactorEvent = SOCKET_EVENT_MAP[socketEventName];
+
+    if(reactorEvent) {
+      this.reactor.dispatchEvent(reactorEvent);
+    }
+  }
+
   async init() {
+    // Each socket event follows the same path: parse data → update() (writes to engine via
+    // setters + writes to UI) → dispatch reactor event. This mirrors GameController's
+    // _setupEventForwarding, just with socket as the data source instead of local engine.
     this.socket.on("init", data => {
       this.parseData("init", data, this.enableClientSidePredictions);
 
@@ -71,44 +97,44 @@ export default class GameControllerSocket extends GameController {
 
     this.socket.on("reset", data => {
       this.parseData("reset", data, this.enableClientSidePredictions);
-      this.reactor.dispatchEvent("onReset");
+      this._dispatchForSocketEvent("reset");
     });
 
     this.socket.on("start", data => {
       this.parseData("start", data);
-      this.reactor.dispatchEvent("onStart");
+      this._dispatchForSocketEvent("start");
     });
 
     this.socket.on("pause", data => {
       this.parseData("pause", data);
-      this.reactor.dispatchEvent("onPause");
+      this._dispatchForSocketEvent("pause");
     });
 
     this.socket.on("continue", data => {
       this.parseData("continue", data);
-      this.reactor.dispatchEvent("onContinue");
+      this._dispatchForSocketEvent("continue");
     });
 
     this.socket.on("stop", data => {
       this.parseData("stop", data, this.enableClientSidePredictions);
-      this.reactor.dispatchEvent("onStop");
+      this._dispatchForSocketEvent("stop");
     });
 
     this.socket.on("exit", data => {
       this.parseData("exit", data);
       this.gameEngine.exit();
-      this.reactor.dispatchEvent("onExit");
+      this._dispatchForSocketEvent("exit");
     });
 
     this.socket.on("kill", data => {
       this.parseData("kill", data);
       this.gameEngine.kill();
-      this.reactor.dispatchEvent("onKill");
+      this._dispatchForSocketEvent("kill");
     });
 
     this.socket.on("scoreIncreased", data => {
       this.parseData("scoreIncreased", data);
-      this.reactor.dispatchEvent("onScoreIncreased");
+      this._dispatchForSocketEvent("scoreIncreased");
     });
 
     this.socket.on("update", data => {
@@ -118,7 +144,7 @@ export default class GameControllerSocket extends GameController {
         this.gameUI.offsetFrame = 0;
       }
 
-      this.reactor.dispatchEvent("onUpdate");
+      this._dispatchForSocketEvent("update");
     });
 
     this.socket.on("updateCounter", data => {
@@ -130,7 +156,7 @@ export default class GameControllerSocket extends GameController {
         }
       }
 
-      this.reactor.dispatchEvent("onUpdateCounter");
+      this._dispatchForSocketEvent("updateCounter");
     });
 
     this.socket.on("notification", (text, duration, textColor, backgroundColor, foreground) => {
@@ -152,18 +178,18 @@ export default class GameControllerSocket extends GameController {
     this.socket.once("reconnect_error", () => {
       this.gameUI.setNotification(new NotificationMessage(i18next.t("engine.servers.errorConnection"), null, GameConstants.Setting.ERROR_NOTIF_COLOR, null, null, null, null, true));
     });
-    
+
     await this.gameUI.startAfterEngineInit();
   }
 
   reset() {
     this.socket.emit("reset");
   }
-  
+
   start() {
     this.socket.emit("start");
   }
-  
+
   stop() {
     this.socket.emit("stop");
   }
@@ -171,7 +197,7 @@ export default class GameControllerSocket extends GameController {
   finish(finish) {
     this.socket.emit(finish ? "finish" : "stop");
   }
-  
+
   pause() {
     this.socket.emit("pause");
   }
