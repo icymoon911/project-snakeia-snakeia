@@ -1,0 +1,21 @@
+{
+  "short_name": "SnakeIA",
+  "name": "SnakeIA",
+  "background_color": "#27ae60",
+  "theme_color": "#27ae60",
+  "display": "standalone",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "assets/images/icon/icon_192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "assets/images/icon/icon_512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "index.html?launcher=true"
+}

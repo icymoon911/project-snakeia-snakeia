@@ -1,0 +1,2762 @@
+/*
+ * Copyright (C) 2019-2025 Eliastik (eliastiksofts.com)
+ *
+ * This file is part of "SnakeIA".
+ *
+ * "SnakeIA" is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * "SnakeIA" is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with "SnakeIA".  If not, see <http://www.gnu.org/licenses/>.
+ */
+import i18next from "i18next";
+import GridUI from "./GridUI";
+import GameConstants from "../engine/Constants";
+import GameUtils from "../engine/GameUtils";
+import Position from "../engine/Position";
+import { Utils } from "jsgametools";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { FXAAPass } from "three/addons/postprocessing/FXAAPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import chroma from "chroma-js";
+
+export default class GridUI3D extends GridUI {
+  constructor(snakes, grid, speed, disableAnimation, graphicSkin, isFilterHueAvailable, headerHeight, imageLoader, modelLoader, currentPlayer, graphicType, customGraphicsPreset, debugMode) {
+    super(snakes, grid, speed, disableAnimation, graphicSkin, isFilterHueAvailable, headerHeight, imageLoader, modelLoader, currentPlayer, debugMode);
+
+    // Constants
+    this.cameraPresetsByHeight = {
+      5: { fov: 5, distance: 60, zoom: 1 },
+      10: { fov: 8, distance: 75, zoom: 1 },
+      20: { fov: 12, distance: 100, zoom: 1 },
+      50: { fov: 24, distance: 125, zoom: 1 },
+      75: { fov: 32, distance: 135, zoom: 1 },
+      100: { fov: 46, distance: 120, zoom: 1 }
+    };
+
+    this.cameraPresetsByWidth = {
+      5: { fov: 30, distance: 10, zoom: 1 },
+      10: { fov: 30, distance: 20, zoom: 1 },
+      20: { fov: 30, distance: 40, zoom: 1 },
+      50: { fov: 30, distance: 95, zoom: 1 },
+      75: { fov: 45, distance: 100, zoom: 1 },
+      100: { fov: 55, distance: 120, zoom: 1 }
+    };
+
+    // Snake eyes animation constants
+    this.EYE_MAX_DIST = 6;
+    this.EYE_MAX_OFFSET = 0.04;
+    this.EYE_GOLD_DELTA = 1.0;
+    this.EYE_FOV_DEG = 250;
+    this.EYE_FRUIT_RADIUS = 0.4;
+
+    this.snakeBodyRenderingMethod = "INDIVIDUAL"; // or TUBES (old method) or INDIVIDUAL (new method)
+    // End of constants
+
+    this.qualitySettings = graphicType !== "3dCustom" || !customGraphicsPreset ? 
+      this.getQualityPresetSettings(graphicType) :
+      {
+        ...this.getQualityPresetSettings(GameConstants.DefaultQualitySettings3D),
+        ...this.resolveQualitySettings(customGraphicsPreset)
+      };
+
+    this.is3DRendering = true;
+    this.postProcessingEnabled = false;
+    this.oldCanvasWidth = null;
+    this.oldCanvasHeight = null;
+    this.currentRenderingSizeAndPosition = null;
+    this.firstUpdatedReflections = false;
+    this.goldFruitFirstFrame = true;
+    this.lastRendererWidth = 0;
+    this.lastRendererHeight = 0;
+    this.hasGoldFruit = false;
+
+    this.snakesMeshes = [];
+
+    this.fruitInstancesMap = new Map();
+    this.fruitGoldPositionKey = null;
+
+    this.segmentGeometryCache = {};
+    this.segmentGeometryCacheParams = {};
+    this.transitionSegmentGeometryCache = {};
+    this.transitionSegmentGeometryCacheParams = {};
+    this.fruitPool = {};
+  }
+
+  init3DEngine() {
+    this.initThreeJS();
+  }
+
+  resolveQualitySettings(preset) {
+    if(!preset) return {};
+    const resolved = {};
+
+    for(const key in GameConstants.QualitySettings3DIndividualPresets) {
+      const def = GameConstants.QualitySettings3DIndividualPresets[key];
+      const value = preset[key];
+
+      if(typeof value === "undefined") continue;
+      
+      if(def.type === "choice" && typeof value === "string") {
+        resolved[key] = def.presets[value];
+      } else {
+        resolved[key] = value;
+      }
+    }
+
+    return resolved;
+  }
+
+  getQualityPresetSettings(graphicType) {
+    const preset = graphicType === "3dCustom" ?
+      GameConstants.QualitySettings3DPreset[GameConstants.DefaultQualitySettings3D] :
+      GameConstants.QualitySettings3DPreset[graphicType];
+      
+    return this.resolveQualitySettings(preset);
+  }
+
+  initThreeJS() {
+    this.isLightInit = false;
+    this.isCameraInit = false;
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0xCCCFD3);
+
+    this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 1000);
+
+    this.camera.position.set(0, 0, 0);
+    this.camera.lookAt(0, 0, 0);
+  
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: this.qualitySettings.enableAntialiasing || this.qualitySettings.antialiasing === "msaa",
+      alpha: true
+    });
+
+    this.cubeRenderTarget = new THREE.WebGLCubeRenderTarget((this.qualitySettings && this.qualitySettings.reflectionResolution) || 128);
+    this.cubeRenderTarget.texture.type = THREE.HalfFloatType;
+    
+    this.cubeCamera = new THREE.CubeCamera(0.1, 1000, this.cubeRenderTarget);
+
+    this.renderer.shadowMap.enabled = this.qualitySettings.enableShadows;
+
+    let shadowType = THREE.PCFShadowMap;
+
+    switch(this.qualitySettings.shadowType) {
+    case "basic":
+      shadowType = THREE.BasicShadowMap;
+      break;
+    case "pcf":
+      shadowType = THREE.PCFShadowMap;
+      break;
+    case "pcfsoft":
+      shadowType = THREE.PCFShadowMap;
+      break;
+    }
+
+    this.renderer.shadowMap.type = shadowType;
+
+    this.gridGroup = new THREE.Group();
+    this.fruitsGroup = new THREE.Group();
+    this.unknownGroup = new THREE.Group();
+    this.snakesGroup = new THREE.Group();
+
+    if(this.qualitySettings.antialiasing === "fxaa" || this.qualitySettings.antialiasing === "smaa") {
+      this.composer = new EffectComposer(this.renderer);
+      this.renderPass = new RenderPass(this.scene, this.camera);
+      this.composer.addPass(this.renderPass);
+
+      if(this.qualitySettings.antialiasing === "fxaa") {
+        this.outputPass = new OutputPass();
+        this.composer.addPass(this.outputPass);
+
+        this.fxaaPass = new FXAAPass();
+        this.composer.addPass(this.fxaaPass);
+      } else if(this.qualitySettings.antialiasing === "smaa") {
+        this.smaaPass = new SMAAPass();
+        this.composer.addPass(this.smaaPass);
+        
+        this.outputPass = new OutputPass();
+        this.composer.addPass(this.outputPass);
+      }
+
+      this.postProcessingEnabled = true;
+    }
+
+    this.scene.add(this.gridGroup, this.fruitsGroup, this.snakesGroup, this.unknownGroup);
+  }
+
+  buildGoldFruitShaders() {
+    const wasVisibleGold = this.fruitModelGold.visible;
+    const savedPositionGold = this.fruitModelGold.position.clone();
+
+    const haloGold = this.fruitGoldHalo;
+    const wasVisibleHaloGold = haloGold?.visible ?? false;
+    const savedHaloGoldPosition = haloGold?.position.clone();
+
+    this.fruitModelGold.visible = true;
+    this.fruitGoldPointLight.visible = true;
+    
+    if(haloGold) {
+      haloGold.visible = true;
+    }
+
+    this.fruitModelGold.position.set(0, 0, 0.5);
+    this.fruitGoldPointLight.position.set(0, 0, 0.5);
+
+    this.updateReflections(0, 0, 0.5);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.compile(this.scene, this.camera);
+
+    this.fruitModelGold.visible = wasVisibleGold;
+    this.fruitGoldPointLight.visible = wasVisibleGold && this.qualitySettings.fruitLights;
+
+    this.fruitModelGold.position.copy(savedPositionGold);
+    this.fruitGoldPointLight.position.copy(savedPositionGold);
+
+    if(haloGold) {
+      haloGold.visible = wasVisibleHaloGold;
+      
+      if(savedHaloGoldPosition) {
+        haloGold.position.copy(savedHaloGoldPosition);
+      }
+    }
+  }
+
+  setupControls(canvas) {
+    if(!this.areControlsInit && this.debugMode && canvas) {
+      this.controls = new OrbitControls(this.camera, canvas);
+      this.controls.enableDamping = true;
+      this.controls.dampingFactor = 0.1;
+      this.controls.screenSpacePanning = false;
+      this.controls.minDistance = 0;
+      this.controls.maxDistance = 500;
+      this.controls.maxPolarAngle = Math.PI / 2;
+
+      this.areControlsInit = true;
+    }
+  }
+
+  calculateRenderingSizeAndPosition(canvas) {
+    const canvasWidth = canvas?.width || 800;
+    const canvasHeight = canvas?.height || 600;
+
+    if(this.oldCanvasWidth === canvasWidth && this.oldCanvasHeight === canvasHeight) {
+      return this.currentRenderingSizeAndPosition;
+    }
+
+    const availableHeight = canvasHeight - this.headerHeight;
+    const availableWidth = canvasWidth;
+
+    const caseSize = this.calculateCaseSize(availableHeight, availableWidth);
+
+    const totalWidth = caseSize * this.grid.width;
+    const totalHeight = caseSize * this.grid.height;
+
+    const offsetX = Math.floor((availableWidth - totalWidth) / 2);
+    const offsetY = Math.floor((availableHeight - totalHeight) / 2) + this.headerHeight;
+
+    this.width = totalWidth;
+    this.height = totalHeight;
+
+    this.oldCanvasWidth = canvasWidth;
+    this.oldCanvasHeight = canvasHeight;
+
+    this.currentRenderingSizeAndPosition = { offsetX, offsetY, totalWidth, totalHeight, caseSize };
+
+    return this.currentRenderingSizeAndPosition;
+  }
+
+  draw(context, dryRun) {
+    if(!this.grid || !this.grid.grid) {
+      return;
+    }
+
+    const canvas = context?.canvas;
+    const ctx = canvas?.getContext("2d");
+
+    if(this.oldHeight != canvas?.height || this.oldWidth != canvas?.width) {
+      this.forceRedraw = true;
+    }
+
+    ctx?.save();
+
+    const { offsetX, offsetY, totalWidth, totalHeight, caseSize } = this.calculateRenderingSizeAndPosition(canvas);
+
+    this.setupControls(canvas);
+
+    this.setupLights();
+
+    this.setupCameraAndSize();
+
+    this.setupFruit();
+    this.setupGoldFruit();
+
+    this.setupGrid();
+
+    this.updateSnakes();
+
+    if(!this.disableAnimation && (!Object.keys(this.qualitySettings).includes("fruitsAnimation") || this.qualitySettings.fruitsAnimation)) {
+      this.animateFruits();
+    }
+
+    this.drawGrid(ctx, offsetX, offsetY, totalWidth, totalHeight, caseSize, dryRun);
+
+    this.saveCurrentState(canvas);
+  
+    this.oldTicks = this.ticks;
+
+    if(this.debugMode && ctx) {
+      Utils.drawText(ctx, this.getDebugText(), "rgba(255, 255, 255, 0.85)", Math.round(this.fontSize / 1.5), GameConstants.Setting.FONT_FAMILY, "left", "bottom", null, null, true);
+    }
+
+    ctx?.restore();
+  }
+
+  getDebugText() {
+    const info = this.renderer.info;
+    return `${i18next.t("engine.debug.drawcalls")} ${info.render.calls} / ${i18next.t("engine.debug.geometries")} ${info.memory.geometries} / ${i18next.t("engine.debug.textures")} ${info.memory.textures} / ${i18next.t("engine.debug.triangles")} ${info.render.triangles}`;
+  }
+
+  getMaterial(options) {
+    switch(this.qualitySettings.materialType) {
+    case "basic":
+      return new THREE.MeshBasicMaterial(options);
+    case "lambert":
+      return new THREE.MeshLambertMaterial(options);
+    case "phong":
+      return new THREE.MeshPhongMaterial(options);
+    default:
+      return new THREE.MeshStandardMaterial(options);
+    }
+  }
+
+  shouldUpdateBasedOnTicks() {
+    return this.oldTicks < this.ticks || this.oldTicks === undefined || (this.ticks === 0 && this.oldTicks !== 0);
+  }
+
+  shouldUpdateDynamicReflections() {
+    const reflectionQuality = this.qualitySettings && this.qualitySettings.reflectionQuality;
+    const reflectionsEnabled = this.qualitySettings && this.qualitySettings.enableReflections;
+
+    const shouldUpdateBasedOnTicks = this.shouldUpdateBasedOnTicks();
+    
+    const shouldUpdateDynamicThrottled = reflectionQuality === "dynamicThrottled" && shouldUpdateBasedOnTicks;
+    const shouldUpdateDynamicOnce = reflectionQuality === "dynamicOnce" && this.gridStateChanged.changed;
+    const shouldUpdateStatic = reflectionQuality === "static" && !this.firstUpdatedReflections;
+
+    const shouldUpdateBasedOnQuality = reflectionQuality === "dynamicFull" || shouldUpdateDynamicThrottled || shouldUpdateDynamicOnce || shouldUpdateStatic;
+
+    const hasGoldFruit = this.hasGoldFruit;
+
+    const isFirstGoldFrame = this.goldFruitFirstFrame === true;
+
+    return reflectionsEnabled && shouldUpdateBasedOnQuality && hasGoldFruit && !isFirstGoldFrame;
+  }
+
+  drawGrid(ctx, offsetX, offsetY, totalWidth, totalHeight, caseSize, dryRun) {
+    if(!this.shadersCompiled) {
+      this.buildGoldFruitShaders();
+      this.shadersCompiled = true;
+    }
+
+    if(this.shouldUpdateDynamicReflections()) {
+      this.updateReflections(this.fruitModelGold.position.x, this.fruitModelGold.position.y, this.fruitModelGold.position.z);
+      this.firstUpdatedReflections = true;
+    }
+    
+    this.goldFruitFirstFrame = false;
+
+    if(this.postProcessingEnabled) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
+
+    if(ctx && !dryRun) {
+      Utils.drawImageData(ctx, this.renderer.domElement, offsetX, offsetY, totalWidth, totalHeight, 0, 0, totalWidth, totalHeight);
+
+      if(this.snakes.length > 1) {
+        this.drawSnakeInfos(ctx, offsetX, offsetY, caseSize, this.currentPlayer);
+      }
+    }
+  }
+
+  updateReflections(cameraX, cameraY, cameraZ) {
+    this.cubeCamera.position.set(cameraX, cameraY, cameraZ);
+    this.cubeCamera.update(this.renderer, this.scene);
+  }
+
+  interpolateCameraSettings(gridSize, presets) {
+    const sizes = Object.keys(presets).map(Number).sort((a, b) => a - b);
+
+    if(gridSize <= sizes[0]) {
+      return presets[sizes[0]];
+    }
+
+    if(gridSize >= sizes[sizes.length - 1]) {
+      return presets[sizes[sizes.length - 1]];
+    }
+
+    for(let i = 0; i < sizes.length - 1; i++) {
+      const sizeA = sizes[i];
+      const sizeB = sizes[i + 1];
+
+      if(gridSize >= sizeA && gridSize <= sizeB) {
+        const ratio = (gridSize - sizeA) / (sizeB - sizeA);
+        const fov = presets[sizeA].fov + ratio * (presets[sizeB].fov - presets[sizeA].fov);
+        const distance = presets[sizeA].distance + ratio * (presets[sizeB].distance - presets[sizeA].distance);
+        const zoom = presets[sizeA].zoom + ratio * (presets[sizeB].zoom - presets[sizeA].zoom);
+
+        return { fov, distance, zoom };
+      }
+    }
+  }
+
+  setupCameraAndSize() {
+    if(!this.isCameraInit) {
+      const gridWidth = this.grid.width;
+      const gridHeight = this.grid.height;
+      
+      const screenAspect = this.width / this.height;
+      const gridAspect = this.grid.width / this.grid.height;
+
+      const useWidthPresets = gridAspect > screenAspect;
+
+      const gridSize = useWidthPresets ? gridWidth : gridHeight;
+      const presets = useWidthPresets ? this.cameraPresetsByWidth : this.cameraPresetsByHeight;
+
+      const { fov, distance, zoom } = this.interpolateCameraSettings(gridSize, presets);
+
+      this.camera.fov = fov;
+      this.camera.aspect = screenAspect;
+      this.camera.zoom = zoom;
+      this.camera.position.set(0, 0, distance);
+      this.camera.lookAt(0, 0, 0);
+      this.camera.updateProjectionMatrix();
+
+      this.isCameraInit = true;
+    }
+
+    if(!this.isCameraDebugInit && this.debugMode) {
+      this.cameraHelper = new THREE.CameraHelper(this.camera);
+      this.scene.add(this.cameraHelper);
+
+      this.isCameraDebugInit = true;
+    }
+
+    if(this.width !== this.lastRendererWidth || this.height !== this.lastRendererHeight) {
+      this.renderer.setSize(this.width, this.height);
+
+      if(this.postProcessingEnabled) {
+        this.renderPass.setSize(this.width, this.height);
+        this.composer.setSize(this.width, this.height);
+        this.outputPass.setSize(this.width, this.height);
+      }
+
+      this.lastRendererWidth = this.width;
+      this.lastRendererHeight = this.height;
+    }
+
+    if(this.controls) {
+      this.controls.update();
+    }
+  }
+
+  setupLights() {
+    if(!this.isLightInit) {
+      const gridSize = Math.max(this.grid.width, this.grid.height);
+      const halfGrid = gridSize / 2;
+      const padding = 2;
+
+      this.ambientLight = new THREE.AmbientLight(0xffffff, 1);
+
+      this.dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+
+      this.dirLight.position.set(-halfGrid * 0.5, halfGrid * 0.5, halfGrid * 2);
+      this.dirLight.target.position.set(0, 0, 0);
+
+      this.dirLight.castShadow = true;
+      this.dirLight.shadow.mapSize.width = this.qualitySettings.shadowResolution;
+      this.dirLight.shadow.mapSize.height = this.qualitySettings.shadowResolution;
+
+      this.dirLight.shadow.camera.near = 1;
+      this.dirLight.shadow.camera.far = 100;
+
+      this.dirLight.shadow.camera.left = -halfGrid - padding;
+      this.dirLight.shadow.camera.right = halfGrid + padding;
+      this.dirLight.shadow.camera.top = halfGrid + padding;
+      this.dirLight.shadow.camera.bottom = -halfGrid - padding;
+
+      this.dirLight.shadow.camera.near = 0.1;
+      this.dirLight.shadow.camera.far = halfGrid * 4;
+
+      this.scene.add(this.ambientLight, this.dirLight);
+
+      this.isLightInit = true;
+    }
+
+    if(!this.isLightDebugInit && this.debugMode) {
+      this.lightHelper = new THREE.DirectionalLightHelper(this.dirLight);
+      this.scene.add(this.lightHelper);
+
+      this.isLightDebugInit = true;
+    }
+  }
+
+  disposeGroup(group) {
+    group.traverse(child => {
+      if(child.isMesh) {
+        this.disposeMesh(child);
+      }
+    });
+  }
+
+  disposeMesh(mesh) {
+    mesh.geometry?.dispose();
+
+    if(Array.isArray(mesh.material)) {
+      mesh.material.forEach(mat => mat?.dispose());
+    } else {
+      mesh.material?.dispose();
+    }
+
+    if(mesh.texture?.dispose) mesh.texture.dispose();
+    if(mesh.material?.map) mesh.material.map.dispose();
+    if(mesh.material?.normalMap) mesh.material.normalMap.dispose();
+    if(mesh.material?.metalnessMap) mesh.material.metalnessMap.dispose();
+    if(mesh.material?.roughnessMap) mesh.material.roughnessMap.dispose();
+    if(mesh.material?.bumpMap) mesh.material.bumpMap.dispose();
+    if(mesh.material?.aoMap) mesh.material.aoMap.dispose();
+  }
+
+  /** Grid handling */
+
+  hideGoldFruit() {
+    if(this.fruitModelGold) {
+      this.fruitModelGold.visible = false;
+      this.fruitGoldPointLight.visible = false;
+      this.fruitGoldHalo.visible = false;
+    }
+  }
+  
+  cleanFruitInstance(fruitInstance) {
+    this.disposeMesh(fruitInstance.mesh);
+    this.fruitsGroup.remove(fruitInstance.mesh);
+
+    if(fruitInstance.light) {
+      this.fruitsGroup.remove(fruitInstance.light);
+    }
+
+    if(fruitInstance.halo) {
+      this.fruitsGroup.remove(fruitInstance.halo);
+    }
+  }
+
+  setupGrid() {
+    const gridStateChanged = this.gridStateChanged;
+
+    if(this.forceRedraw || gridStateChanged.changed) {
+      const fruitStateHaveChanged = gridStateChanged.changedValues.has(GameConstants.CaseType.FRUIT)
+        || gridStateChanged.changedValues.has(GameConstants.CaseType.FRUIT_GOLD);
+
+      if(fruitStateHaveChanged) {
+        this.placeFruits();
+      }
+
+      const wallsHaveChanged = gridStateChanged.changedValues.has(GameConstants.CaseType.WALL);
+
+      if(wallsHaveChanged) {
+        this.updateGrid();
+      }
+
+      const unknownHaveChanged = gridStateChanged.changedValues.values()
+        .some(value => !Object.values(GameConstants.CaseType).includes(value));
+
+      if(unknownHaveChanged) {
+        this.placeUnknown();
+      }
+    }
+  }
+
+  updateGrid() {
+    this.clearGrid();
+
+    const totalCells = this.grid.width * this.grid.height;
+    const halfCells = Math.floor(totalCells / 2);
+
+    this.ground = this.constructGround();
+    this.wallInstancedMesh = this.constructWallMesh();
+    this.lightGrayCellInstancedMesh = this.constructLightGrayCell(totalCells, halfCells);
+    this.darkGrayCellInstancedMesh = this.constructDarkGrayCell(halfCells);
+
+    this.gridGroup.add(this.ground, this.lightGrayCellInstancedMesh, this.darkGrayCellInstancedMesh);
+
+    if(this.wallInstancedMesh) {
+      this.gridGroup.add(this.wallInstancedMesh);
+    }
+
+    const halfGridWidth = this.grid.width / 2;
+    const halfGridHeight = this.grid.height / 2;
+
+    let wallIndex = 0;
+    let lightGrayCellIndex = 0;
+    let darkGrayCellIndex = 0;
+
+    for(let y = 0; y < this.grid.height; y++) {
+      for(let x = 0; x < this.grid.width; x++) {
+        const xPosition = x - halfGridWidth + 0.5;
+        const yPosition = (this.grid.height - 1 - y) - halfGridHeight + 0.5;
+
+        const caseType = this.grid.get(new Position(x, y));
+
+        if (caseType === GameConstants.CaseType.WALL) {
+          const matrix = new THREE.Matrix4().makeTranslation(xPosition, yPosition, 0.75);
+          this.wallInstancedMesh.setMatrixAt(wallIndex++, matrix);
+        } else {
+          const matrix = new THREE.Matrix4().makeTranslation(xPosition, yPosition, 0.05);
+          const cellMesh = (x + y) % 2 === 0 ? this.lightGrayCellInstancedMesh : this.darkGrayCellInstancedMesh;
+          cellMesh.setMatrixAt((x + y) % 2 === 0 ? lightGrayCellIndex++ : darkGrayCellIndex++, matrix);
+        }
+      }
+    }
+  }
+
+  clearGrid() {
+    this.ground?.clear();
+    this.wallInstancedMesh?.clear();
+    this.lightGrayCellInstancedMesh?.clear();
+    this.darkGrayCellInstancedMesh?.clear();
+
+    this.disposeGroup(this.gridGroup);
+    this.gridGroup.clear();
+  }
+
+  placeFruits() {
+    const halfGridWidth = this.grid.width / 2;
+    const halfGridHeight = this.grid.height / 2;
+
+    const currentFruits = new Map();
+
+    for(let y = 0; y < this.grid.height; y++) {
+      for(let x = 0; x < this.grid.width; x++) {
+        const caseType = this.grid.get(new Position(x, y));
+        
+        if(caseType === GameConstants.CaseType.FRUIT || caseType === GameConstants.CaseType.FRUIT_GOLD) {
+          currentFruits.set(`${x},${y}`, { caseType, x, y });
+        }
+      }
+    }
+
+    for(const posKey of this.fruitInstancesMap.keys()) {
+      if(!currentFruits.has(posKey)) {
+        const instance = this.fruitInstancesMap.get(posKey);
+
+        if(instance) {
+          this.releaseFruitToPool(instance);
+          this.fruitInstancesMap.delete(posKey);
+        }
+      }
+    }
+
+    if(this.fruitGoldPositionKey && !currentFruits.has(this.fruitGoldPositionKey)) {
+      this.hideGoldFruit();
+      this.fruitGoldPositionKey = null;
+      this.hasGoldFruit = false;
+    }
+
+    for(const [posKey, fruit] of currentFruits) {
+      const xPosition = fruit.x - halfGridWidth + 0.5;
+      const yPosition = (this.grid.height - 1 - fruit.y) - halfGridHeight + 0.5;
+        
+      if(!this.fruitInstancesMap.has(posKey) && posKey !== this.fruitGoldPositionKey) {
+        const fruitType = fruit.caseType;
+
+        if(fruitType === GameConstants.CaseType.FRUIT) {
+          const instance = this.acquireFruitFromPool(xPosition, yPosition);
+
+          if(instance) {
+            this.fruitInstancesMap.set(posKey, instance);
+          }
+        } else if(fruitType === GameConstants.CaseType.FRUIT_GOLD) {
+          this.displayFruitSingle(xPosition, yPosition, fruitType);
+          this.fruitGoldPositionKey = posKey;
+        }
+      }
+    }
+  }
+
+  placeUnknown() {
+    this.clearUnknwown();
+
+    const halfGridWidth = this.grid.width / 2;
+    const halfGridHeight = this.grid.height / 2;
+
+    const unknownPositions = [];
+
+    for(let y = 0; y < this.grid.height; y++) {
+      for(let x = 0; x < this.grid.width; x++) {
+        const xPosition = x - halfGridWidth + 0.5;
+        const yPosition = (this.grid.height - 1 - y) - halfGridHeight + 0.5;
+
+        const caseType = this.grid.get(new Position(x, y));
+
+        if(!Object.values(GameConstants.CaseType).includes(caseType)) {
+          unknownPositions.push({ xPosition, yPosition });
+        }
+      }
+    }
+    
+    this.unknownInstancedMesh = this.constructUnknownMesh(unknownPositions.length);
+
+    const dummy = new THREE.Object3D();
+
+    for(const [index, { xPosition, yPosition }] of unknownPositions.entries()) {
+      dummy.position.set(xPosition - 0.3, yPosition - 0.4, 0.5);
+
+      dummy.rotation.x = Math.PI / 2;
+      dummy.scale.setScalar(this.unknownModelScaleFactor);
+
+      dummy.updateMatrix();
+
+      this.unknownInstancedMesh.setMatrixAt(index, dummy.matrix);
+    }
+
+    dummy.clear();
+
+    this.unknownGroup.add(this.unknownInstancedMesh);
+  }
+
+  clearUnknwown() {
+    this.unknownInstancedMesh?.dispose();
+
+    this.disposeGroup(this.unknownGroup);
+    this.unknownGroup.clear();
+  }
+
+  constructGround() {
+    const ground = new THREE.Mesh(
+      new THREE.BoxGeometry(this.grid.width, this.grid.height, 2),
+      this.getMaterial({ color: 0x95a5a6 })
+    );
+
+    ground.receiveShadow = false;
+    ground.position.set(0, 0, -1);
+
+    return ground;
+  }
+
+  countWalls() {
+    let wallsCount = 0;
+
+    for(let y = 0; y < this.grid.height; y++) {
+      for(let x = 0; x < this.grid.width; x++) {
+        const caseType = this.grid.get(new Position(x, y));
+
+        if(caseType === GameConstants.CaseType.WALL) {
+          wallsCount++;
+        }
+      }
+    }
+
+    return wallsCount;
+  }
+
+  constructUnknownMesh(instanceCount) {
+    if(!this.unknownGeometry && !this.unknownMaterial) {
+      const unknownModel = this.modelLoader.get("unknown");
+
+      if(!unknownModel) {
+        return;
+      }
+
+      let baseMesh = null;
+
+      unknownModel.traverse(child => {
+        if(child.isMesh && !baseMesh) {
+          baseMesh = child;
+        }
+      });
+
+      if(!baseMesh) {
+        return;
+      }
+
+      const box = new THREE.Box3().setFromObject(unknownModel);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+
+      this.unknownModelScaleFactor = 0.4 / size.x;
+
+      this.unknownGeometry = baseMesh.geometry;
+
+      this.unknownMaterial = this.getMaterial({
+        map: baseMesh.material.map,
+        normalMap: baseMesh.material.normalMap,
+        metalnessMap: baseMesh.material.metalnessMap,
+        roughnessMap: baseMesh.material.roughnessMap
+      });
+
+      unknownModel.clear();
+    }
+
+    const unknownInstancedMesh = new THREE.InstancedMesh(
+      this.unknownGeometry,
+      this.unknownMaterial,
+      instanceCount
+    );
+
+    unknownInstancedMesh.castShadow = true;
+    unknownInstancedMesh.receiveShadow = true;
+
+    return unknownInstancedMesh;
+  }
+
+  /** Wall and cell meshes handling */
+
+  constructWallMesh() {
+    const wallsCount = this.countWalls();
+
+    if(wallsCount <= 0) {
+      return null;
+    }
+
+    if(!this.wallTexture) {
+      const wallImage = this.imageLoader.get(`assets/images/skin/${this.graphicSkin}/${GameUtils.getImageCase(GameConstants.CaseType.WALL)}`);
+      this.wallTexture = new THREE.CanvasTexture(wallImage);
+      this.wallTexture.colorSpace = THREE.SRGBColorSpace;
+    }
+
+    if(!this.wallTextureNormal) {
+      const wallTextureNormal = this.imageLoader.get(`assets/images/skin/${this.graphicSkin}/wall_normal.png`);
+      this.wallTextureNormal = new THREE.CanvasTexture(wallTextureNormal);
+      this.wallTextureNormal.colorSpace = THREE.SRGBColorSpace;
+    }
+
+    if(!this.wallTextureHeight) {
+      const wallTextureHeight = this.imageLoader.get(`assets/images/skin/${this.graphicSkin}/wall_height.png`);
+      this.wallTextureHeight = new THREE.CanvasTexture(wallTextureHeight);
+      this.wallTextureHeight.colorSpace = THREE.SRGBColorSpace;
+    }
+
+    if(!this.wallTextureAO) {
+      const wallTextureAO = this.imageLoader.get(`assets/images/skin/${this.graphicSkin}/wall_ao.png`);
+      this.wallTextureAO = new THREE.CanvasTexture(wallTextureAO);
+      this.wallTextureAO.colorSpace = THREE.SRGBColorSpace;
+    }
+
+    const wallGeometry = new THREE.BoxGeometry(1, 1, 1.5);
+    const wallMaterial = this.getMaterial({
+      map: this.wallTexture,
+      toneMapped: false,
+      normalMap: this.wallTextureNormal,
+      bumpMap: this.wallTextureHeight,
+      bumpScale: 2.0,
+      aoMap: this.wallTextureAO,
+      aoMapIntensity: 0.75
+    });
+
+    const wallInstancedMesh = new THREE.InstancedMesh(wallGeometry, wallMaterial, wallsCount);
+    wallInstancedMesh.receiveShadow = true;
+    wallInstancedMesh.castShadow = true;
+
+    return wallInstancedMesh;
+  }
+
+  constructLightGrayCell(totalCells, halfCells) {
+    const lightGrayCellGeometry = new THREE.BoxGeometry(1, 1, 0.1);
+    const lightGrayCellMaterial = this.getMaterial({ color: 0x95a5a6 });
+    const lightGrayCellInstancedMesh = new THREE.InstancedMesh(lightGrayCellGeometry, lightGrayCellMaterial, totalCells % 2 === 0 ? halfCells : halfCells + 1);
+    lightGrayCellInstancedMesh.receiveShadow = true;
+    lightGrayCellInstancedMesh.castShadow = false;
+    return lightGrayCellInstancedMesh;
+  }
+
+  constructDarkGrayCell(halfCells) {
+    const darkGrayCellGeometry = new THREE.BoxGeometry(1, 1, 0.1);
+    const darkGrayCellMaterial = this.getMaterial({ color: 0x2c3e50 });
+    const darkGrayCellInstancedMesh = new THREE.InstancedMesh(darkGrayCellGeometry, darkGrayCellMaterial, halfCells);
+    darkGrayCellInstancedMesh.receiveShadow = true;
+    darkGrayCellInstancedMesh.castShadow = false;
+    return darkGrayCellInstancedMesh;
+  }
+
+  /** Fruit meshes handling */
+
+  setupFruit() {
+    if(this.fruitModel) {
+      return;
+    }
+
+    const fruitColor = 0xff1100;
+
+    this.fruitModel = this.graphicSkin === "pixel" ?
+      new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), this.getMaterial({ color: fruitColor })) :
+      this.modelLoader.get("fruit");
+
+    if(this.fruitModel) {
+      this.fruitPointLight = new THREE.PointLight(0xff1100, 0.8, 2);
+      this.fruitHalo = this.setupFruitHalo(new THREE.Color(0xff1100));
+
+      const box = new THREE.Box3().setFromObject(this.fruitModel);
+
+      const size = new THREE.Vector3();
+      box.getSize(size);
+
+      this.fruitModel.scale.setScalar(0.8 / size.x);
+      this.fruitModel.userData.baseScale = 0.8 / size.x;
+      this.fruitModel.rotation.x = Math.PI / 2;
+
+      this.fruitModel.traverse(child => {
+        if(child.isMesh) {
+          child.material = this.getMaterial({
+            map: child.material.map,
+            normalMap: child.material.normalMap,
+            metalnessMap: child.material.metalnessMap,
+            roughnessMap: child.material.roughnessMap,
+            color: child.material.color,
+            roughness: 0.4,
+          });
+        }
+
+        child.castShadow = true;
+        child.receiveShadow = true;
+      });
+
+      this.fruitsGroup.add(this.fruitModel, this.fruitPointLight, this.fruitHalo);
+    }
+    
+    if(this.fruitModel) {
+      this.fruitModel.visible = false;
+      this.fruitPointLight.visible = false;
+      this.fruitHalo.visible = false;
+    }
+
+    this.initFruitPool();
+  }
+
+  setupGoldFruit() {
+    if(this.fruitModelGold) {
+      return;
+    }
+      
+    const fruitGoldColor = 0xFFD700;
+
+    this.fruitModelGold = this.graphicSkin === "pixel" ?
+      new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), this.getMaterial({ color: fruitGoldColor })) :
+      this.modelLoader.get("fruit");
+
+    if(this.fruitModelGold) {
+      this.fruitGoldPointLight = new THREE.PointLight(fruitGoldColor, 0.8, 2);
+      this.fruitGoldHalo = this.setupFruitHalo(new THREE.Color(0xFFD700));
+
+      const box = new THREE.Box3().setFromObject(this.fruitModelGold);
+
+      const size = new THREE.Vector3();
+      box.getSize(size);
+
+      this.fruitModelGold.scale.setScalar(0.8 / size.x);
+      this.fruitModelGold.userData.baseScale = 0.8 / size.x;
+      this.fruitModelGold.rotation.x = Math.PI / 2;
+
+      this.fruitModelGold.traverse(child => {
+        if(child.isMesh) {
+          const enableReflections = this.qualitySettings && this.qualitySettings.enableReflections;
+
+          child.material = this.getMaterial({
+            color: fruitGoldColor,
+            metalness: enableReflections ? 0.85 : 0.75,
+            roughness: 0.095,
+            envMap: enableReflections ? this.cubeRenderTarget.texture : null
+          });
+        }
+
+        child.castShadow = true;
+        child.receiveShadow = true;
+      });
+
+      this.fruitsGroup.add(this.fruitModelGold, this.fruitGoldPointLight, this.fruitGoldHalo);
+    }
+    
+    if(this.fruitModelGold) {
+      this.fruitModelGold.visible = false;
+      this.fruitGoldPointLight.visible = false;
+      this.fruitGoldHalo.visible = false;
+    }
+  }
+
+  setupFruitHalo(color) {
+    const spriteMat = new THREE.SpriteMaterial({
+      map: this.createHaloTexture(),
+      color: color,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(1.2, 1.2, 1);
+
+    return sprite;
+  }
+
+  createHaloTexture() {
+    if(this.haloTexture) {
+      return this.haloTexture;
+    }
+
+    const size = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    const center = size / 2;
+    const gradient = ctx.createRadialGradient(center, center, 0, center, center, center);
+    gradient.addColorStop(0,   "rgba(255,255,255,0.6)");
+    gradient.addColorStop(0.4, "rgba(255,255,255,0.2)");
+    gradient.addColorStop(1,   "rgba(255,255,255,0)");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+
+    this.haloTexture = new THREE.CanvasTexture(canvas);
+    return this.haloTexture;
+  }
+
+  displayFruitSingle(xPosition, yPosition, caseType) {
+    const isGoldFruit = caseType === GameConstants.CaseType.FRUIT_GOLD;
+    const fruitModel = isGoldFruit ? this.fruitModelGold : this.fruitModel;
+    const pointLight = isGoldFruit ? this.fruitGoldPointLight : this.fruitPointLight;
+    const halo = isGoldFruit ? this.fruitGoldHalo : this.fruitHalo;
+
+    if(!fruitModel) {
+      return;
+    }
+
+    const prevX = fruitModel.position.x;
+    const prevY = fruitModel.position.y;
+
+    const positionChanged = prevX !== xPosition || prevY !== yPosition;
+
+    if(!positionChanged) {
+      return;
+    }
+
+    if(this.qualitySettings.fruitLights) {
+      pointLight.visible = true;
+      halo.visible = true;
+      pointLight.position.set(xPosition, yPosition, 0.5);
+      halo.position.set(xPosition, yPosition, 0.5);
+    } else {
+      pointLight.visible = false;
+      halo.visible = false;
+    }
+
+    fruitModel.visible = true;
+    fruitModel.position.set(xPosition, yPosition, 0.5);
+
+    if(positionChanged) {
+      fruitModel.userData.spawnAnim = {
+        progress: 0,
+        duration: 0.7,
+        startTime: performance.now()
+      };
+    }
+
+    if(isGoldFruit) {
+      this.hasGoldFruit = true;
+    }
+  }
+
+  initFruitPool() {
+    this.fruitPool = { meshes: [], lights: [], halos: [], available: [] };
+    this.fruitPool.available.push(this.createFruitPoolSlot());
+  }
+
+  createFruitPoolSlot() {
+    const idx = this.fruitPool.meshes.length;
+
+    const mesh = this.fruitModel.clone();
+    mesh.visible = false;
+    mesh.userData.baseScale = this.fruitModel.userData.baseScale ?? 1.0;
+    this.fruitsGroup.add(mesh);
+    this.fruitPool.meshes.push(mesh);
+
+    const light = this.fruitPointLight.clone();
+    light.intensity = 0;
+    light.visible = true;
+    this.fruitsGroup.add(light);
+    this.fruitPool.lights.push(light);
+
+    const halo = this.fruitHalo.clone();
+    halo.visible = false;
+    this.fruitsGroup.add(halo);
+    this.fruitPool.halos.push(halo);
+
+    return idx;
+  }
+
+  acquireFruitFromPool(x, y) {
+    const idx = this.fruitPool.available.length > 0
+      ? this.fruitPool.available.pop()
+      : this.createFruitPoolSlot();
+
+    const mesh = this.fruitPool.meshes[idx];
+    const light = this.fruitPool.lights[idx];
+    const halo = this.fruitPool.halos[idx];
+
+    mesh.position.set(x, y, 0.5);
+    mesh.visible = true;
+    mesh.userData.spawnAnim = {
+      progress: 0,
+      duration: 0.7,
+      startTime: performance.now()
+    };
+
+    if(this.qualitySettings.fruitLights) {
+      light.intensity = 0.8;
+      light.position.set(x, y, 0.5);
+      halo.position.set(x, y, 0.5);
+      halo.visible = true;
+    } else {
+      halo.visible = false;
+      light.visible = false;
+    }
+
+    return { mesh, light, halo, poolIndex: idx };
+  }
+
+  releaseFruitToPool(fruitInstance) {
+    fruitInstance.mesh.visible = false;
+    fruitInstance.light.intensity = 0;
+    fruitInstance.halo.visible = false;
+
+    this.fruitPool.available.push(fruitInstance.poolIndex);
+  }
+
+  springEase(t) {
+    const c1 = 1.15;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+
+  animateFruits() {
+    const now = performance.now();
+    const t = now / 1000;
+
+    const fruitsToAnimate = [];
+    
+    for(const fruitInstance of this.fruitInstancesMap.values()) {
+      fruitsToAnimate.push({
+        model: fruitInstance.mesh,
+        light: fruitInstance.light,
+        halo: fruitInstance.halo,
+        speed: 1.5,
+        bobFreq: 2.5
+      });
+    }
+    
+    if(this.fruitModelGold.visible) {
+      fruitsToAnimate.push({
+        model: this.fruitModelGold,
+        light: this.fruitGoldPointLight,
+        halo: this.fruitGoldHalo,
+        speed: 2.0,
+        bobFreq: 2.5
+      });
+    }
+
+    fruitsToAnimate.forEach(({ model, light, speed, bobFreq, halo }) => {
+      if(!model) return;
+
+      const baseScale = model.userData.baseScale ?? 1.0;
+
+      const anim = model.userData.spawnAnim;
+      let spawnScale = 1.0;
+
+      if(anim) {
+        const elapsed = (now - anim.startTime) / 1000;
+        const p = Math.min(elapsed / anim.duration, 1);
+        spawnScale = this.springEase(p);
+
+        if(p >= 1) {
+          model.userData.spawnAnim = null;
+        }
+      }
+
+      const bobRaw = Math.sin(t * bobFreq);
+      const bob = bobRaw > 0 
+        ? Math.pow(bobRaw, 0.7) * 0.3
+        : -Math.pow(-bobRaw, 1.4) * 0.08;
+      model.position.z = 0.5 + bob;
+
+      model.rotation.y = t * speed;
+
+      const breathe = 1 + Math.sin(t * bobFreq * 2) * 0.02;
+      model.scale.setScalar(baseScale * spawnScale * breathe);
+
+      if(light?.visible) {
+        light.intensity = 0.8 + Math.sin(t * 3) * 0.2;
+      }
+
+      if(halo) {
+        halo.position.set(model.position.x, model.position.y, model.position.z);
+        halo.material.opacity = 0.65 + Math.sin(t * 3) * 0.15;
+        const haloScale = 1.8 + Math.sin(t * 2.5) * 0.15;
+        halo.scale.set(haloScale, haloScale, 1);
+      }
+    });
+  }
+
+  /**
+   * Initialize snake meshes (head, tail, eyes, material)
+   * @param {*} snake The Snake instance
+   * @param {*} snakeIndex The index of the Snake in the snakes array
+   */
+  setupSnake(snake, snakeIndex) {
+    const snakeMaterial = this.getSnakeMaterial(snake);
+
+    const headMesh = this.graphicSkin === "pixel" ?
+      new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.7), snakeMaterial) :
+      this.modelLoader.get("head");
+
+    headMesh.traverse(child => {
+      if(child.isMesh) {
+        child.material = snakeMaterial;
+      }
+
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+
+    const tailMesh = this.graphicSkin === "pixel" ?
+      new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.7), snakeMaterial) :
+      this.modelLoader.get("tail");
+
+    tailMesh.traverse(child => {
+      if(child.isMesh) {
+        child.material = snakeMaterial;
+      }
+
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+
+    const eyesGroup = this.createSnakeEyes(snake);
+    headMesh.add(eyesGroup);
+
+    this.snakesMeshes[snakeIndex] = {
+      bodyParts: null,
+      headMesh: headMesh,
+      tailMesh: tailMesh,
+      snakeMaterial,
+      eyesGroup,
+      snakeIndex,
+      firstRender: true
+    };
+
+    this.snakesGroup.add(headMesh, tailMesh);
+  }
+
+  /** Snakes update handling */
+
+  resetCacheIfNeeded() {
+    const { tubularSegments, radiusSegments } = this.calculateSnakeGeometryQualityIndividual();
+
+    if(this.segmentGeometryCacheParams?.tubularSegments !== tubularSegments
+      || this.segmentGeometryCacheParams?.radiusSegments !== radiusSegments) {
+      this.resetSnakeSegmentCache();
+    }
+
+    if(this.transitionSegmentGeometryCacheParams?.tubularSegments !== tubularSegments
+      || this.transitionSegmentGeometryCacheParams?.radiusSegments !== radiusSegments) {
+      this.resetSnakeTransitionCache();
+    }
+  }
+
+  updateSnakes() {
+    this.resetCacheIfNeeded();
+
+    // If number of snakes has changed, we clean the meshes of the removed snakes
+    if(this.snakesMeshes.length > 0 && this.snakes.length < this.snakesMeshes.length) {
+      for(let snakeIndex = this.snakes.length; snakeIndex < this.snakesMeshes.length; snakeIndex++) {
+        this.cleanSnakesMeshes(snakeIndex);
+      }
+    }
+
+    // Update the snakes
+    for(let snakeIndex = 0; snakeIndex < this.snakes.length; snakeIndex++) {
+      this.updateSnake(snakeIndex);
+    }
+  }
+
+  shouldUpdateSnakeBodyGeometry(snakeIndex, snake) {
+    const shouldUpdateBasedOnTicks = this.shouldUpdateBasedOnTicks();
+    const shouldUpdateBasedOnState = !snake.gameOver || this.individualSnakeStateHasChanged(snakeIndex)
+      || this.snakesMeshes[snakeIndex].firstRender;
+
+    return shouldUpdateBasedOnTicks && shouldUpdateBasedOnState;
+  }
+
+  updateSnake(snakeIndex) {
+    const snake = this.snakes[snakeIndex];
+    const previousSnakeState = this.oldSnakesState ? this.oldSnakesState[snakeIndex] : null;
+
+    if(previousSnakeState && previousSnakeState.gameOver != snake.gameOver) {
+      this.updateSnakeEyes(snakeIndex, snake);
+    }
+
+    // If color has changed, we reset the meshes
+    if(previousSnakeState && previousSnakeState.color != snake.color) {
+      this.cleanSnakesMeshes(snakeIndex);
+    }
+
+    if(!this.snakesMeshes[snakeIndex]) {
+      this.setupSnake(snake, snakeIndex);
+    }
+
+    if(this.shouldUpdateSnakeBodyGeometry(snakeIndex, snake)) {
+      this.cleanOldSnakeGeometry(snakeIndex);
+      this.updateSnakeBodyGeometry(snakeIndex, snake);
+    }
+
+    this.animateSnakeHead(snakeIndex, snake);
+    this.animateSnakeTail(snakeIndex, snake);
+
+    this.updateEyesForSnake(snakeIndex);
+  }
+
+  updateSnakeEyes(snakeIndex, snake) {
+    const meshes = this.snakesMeshes[snakeIndex];
+
+    if(meshes && meshes.eyesGroup) {
+      this.disposeGroup(meshes.eyesGroup);
+      meshes.headMesh.remove(meshes.eyesGroup);
+    }
+
+    const crossGroup = this.createSnakeEyes(snake);
+    meshes.headMesh.add(crossGroup);
+    meshes.eyesGroup = crossGroup;
+  }
+
+  /** Snake meshes cleanup methods */
+
+  cleanOldSnakeGeometry(snakeIndex) {
+    if(!this.snakesMeshes) {
+      return;
+    }
+    
+    const meshes = this.snakesMeshes[snakeIndex];
+
+    if(meshes && meshes.bodyParts) {
+      this.cleanSnakesBodyParts(meshes.bodyParts);
+    }
+  }
+
+  cleanSnakesBodyParts(bodyParts) {
+    if(!bodyParts) {
+      return;
+    }
+
+    for(const bodyPart of bodyParts) {
+      this.disposeMesh(bodyPart);
+      this.snakesGroup.remove(bodyPart);
+    }
+  }
+
+  cleanSnakesMeshes(snakeIndex) {
+    const meshes = this.snakesMeshes[snakeIndex];
+
+    if(!meshes) {
+      return;
+    }
+
+    this.cleanSnakesBodyParts(meshes.bodyParts);
+    this.clearSnakeTransition(snakeIndex, { type: "head" });
+    this.clearSnakeTransition(snakeIndex, { type: "tail" });
+    this.disposeMesh(meshes.headMesh);
+    this.disposeMesh(meshes.tailMesh);
+    this.disposeMesh(meshes.snakeMaterial);
+    this.disposeGroup(meshes.eyesGroup);
+
+    this.snakesGroup.remove(meshes.headMesh, meshes.tailMesh, meshes.eyesGroup);
+
+    this.snakesMeshes[snakeIndex] = null;
+  }
+
+  /** Snake head/tail animation handling */
+
+  animateSnakeHead(snakeIndex, snake) {
+    this.animateSnake({
+      snakeIndex,
+      snake,
+      mesh: this.snakesMeshes[snakeIndex].headMesh,
+      position: snake.getHeadPosition(),
+      nextDirection: this.getSnakeDirection(snake, 1, snake.getHeadPosition()),
+      snakePart: 0,
+      type: "head"
+    });
+  }
+
+  animateSnakeTail(snakeIndex, snake) {
+    this.animateSnake({
+      snakeIndex,
+      snake,
+      mesh: this.snakesMeshes[snakeIndex].tailMesh,
+      position: snake.getTailPosition(),
+      nextDirection: snake.get(snake.length() - 2).direction,
+      snakePart: -1,
+      type: "tail"
+    });
+  }
+
+  getSnakePartGraphicDirection(snakePart, snake) {
+    if(snakePart === 0) {
+      if(snake.length() > 1) {
+        return snake.getGraphicDirection(1);
+      }
+      
+      return snake.getGraphicDirection(0);
+    } else if(snakePart === -1) {
+      return snake.getGraphicDirectionFor(snake.getTailPosition(), snake.lastTail, snake.get(snake.length() - 2));
+    }
+
+    return null;
+  }
+
+  animateSnake({ snake, snakeIndex, mesh, position, nextDirection, snakePart, type }) {
+    const animationPercentage = this.calculateAnimationPercentage(snake, snakePart);
+
+    const currentDirection = this.getSnakeDirection(snake, snakePart, position);
+
+    const position3D = this.gridPositionTo3DPosition(position);
+
+    const isTurning = this.shouldDisplaySnakeAnimation(snake, snakePart)
+      && this.isSnakePartTurning(snake, snakePart);
+
+    const margin = this.getSnakeMargin(currentDirection, nextDirection, type, isTurning, animationPercentage);
+
+    const caseSize = 1;
+    const animationOffset = (caseSize * animationPercentage) - caseSize;
+
+    const offset = new THREE.Vector3(margin.x, margin.y, 0);
+
+    switch(currentDirection) {
+    case GameConstants.Direction.UP:
+      offset.y += animationOffset;
+      break;
+    case GameConstants.Direction.DOWN:
+      offset.y -= animationOffset;
+      break;
+    case GameConstants.Direction.RIGHT:
+      offset.x += animationOffset;
+      break;
+    case GameConstants.Direction.LEFT:
+      offset.x -= animationOffset;
+      break;
+    }
+
+    mesh.position.set(position3D.x + offset.x, position3D.y + offset.y, 0.3);
+
+    this.animateSnakeRotation(snake, snakePart, currentDirection, animationPercentage, mesh);
+    
+    this.updateSnakeTransition(snakeIndex, snake, type, margin);
+  }
+
+  isSnakePartTurning(snake, snakePart) {
+    return (snakePart === 0 || snakePart === -1)
+      && this.isAngleDirection(this.getSnakePartGraphicDirection(snakePart, snake));
+  }
+
+  handleSnakeGridCrossing(toPos, fromPos, snakePart) {
+    const deltaX = toPos.x - fromPos.x;
+    const deltaY = toPos.y - fromPos.y;
+
+    if(snakePart === -1) {
+      if(Math.abs(deltaX) > this.grid.width / 2) {
+        if(deltaX > 0) {
+          toPos.x -= this.grid.width;
+        } else {
+          toPos.x += this.grid.width;
+        }
+      }
+
+      if(Math.abs(deltaY) > this.grid.height / 2) {
+        if(deltaY > 0) {
+          toPos.y -= this.grid.height;
+        } else {
+          toPos.y += this.grid.height;
+        }
+      }
+    } else {
+      if(Math.abs(deltaX) > this.grid.width / 2) {
+        if (deltaX > 0) {
+          fromPos.x += this.grid.width;
+        } else {
+          fromPos.x -= this.grid.width;
+        }
+      }
+
+      if(Math.abs(deltaY) > this.grid.height / 2) {
+        if (deltaY > 0) {
+          fromPos.y += this.grid.height;
+        } else {
+          fromPos.y -= this.grid.height;
+        }
+      }
+    }
+  }
+
+  animateSnakeRotation(snake, snakePart, targetDir, animationPercentage, mesh) {
+    const baseAngle = this.getHeadAndTailRotationFromDirection(targetDir);
+
+    const graphicDirection = this.getSnakePartGraphicDirection(snakePart, snake);
+
+    if((snakePart == 0 || snakePart == -1) && this.isAngleDirection(graphicDirection)
+      && this.shouldDisplaySnakeAnimation(snake, snakePart)) {
+      const animationAngle = this.calculateAnimationAngle(
+        snakePart,
+        animationPercentage,
+        graphicDirection,
+        targetDir
+      );
+      
+      mesh.rotation.z = baseAngle - (animationAngle * (Math.PI / 180));
+    } else {
+      mesh.rotation.z = baseAngle;
+    }
+  }
+
+  getSnakeMargin(currentDir, nextDir, type, isTurning, t) {
+    const straightMargin = {
+      head: {
+        [GameConstants.Direction.RIGHT]: { x: -0.35, y: 0 },
+        [GameConstants.Direction.LEFT]:  { x:  0.35, y: 0 },
+        [GameConstants.Direction.UP]:    { x:  0,   y: -0.35 },
+        [GameConstants.Direction.DOWN]:  { x:  0,   y:  0.35 }
+      },
+      tail: {
+        [GameConstants.Direction.RIGHT]: { x:  0.35, y: 0 },
+        [GameConstants.Direction.LEFT]:  { x: -0.35, y: 0 },
+        [GameConstants.Direction.UP]:    { x:  0,   y: 0.35 },
+        [GameConstants.Direction.DOWN]:  { x:  0,   y: -0.35 }
+      }
+    };
+
+    if(!isTurning) {
+      return straightMargin[type]?.[currentDir] || { x: 0, y: 0 };
+    }
+
+    const startMargin = straightMargin[type]?.[currentDir] || { x: 0, y: 0 };
+    const endMargin   = straightMargin[type]?.[nextDir]    || { x: 0, y: 0 };
+
+    if(type === "head") {
+      return {
+        x: endMargin.x * (1 - t) + startMargin.x * t,
+        y: endMargin.y * (1 - t) + startMargin.y * t
+      };
+    } else {
+      if (t < 0.6) {
+        return startMargin;
+      } else {
+        const localT = (t - 0.6) / 0.4;
+        return {
+          x: startMargin.x * (1 - localT) + endMargin.x * localT,
+          y: startMargin.y * (1 - localT) + endMargin.y * localT
+        };
+      }
+    }
+  }
+
+  getHeadAndTailRotationFromDirection(direction) {
+    return {
+      [GameConstants.Direction.RIGHT]: -Math.PI / 2,
+      [GameConstants.Direction.LEFT]: Math.PI / 2,
+      [GameConstants.Direction.DOWN]: Math.PI,
+      [GameConstants.Direction.UP]: 0
+    }[direction] ?? 0;
+  }
+
+  /** Snake transitions meshes handling (meshes between head/tail and first/last part of the Snake, used for the animation) */
+
+  createGenericSnakeSegmentGeometry(length, type, isTurning) {
+    const { tubularSegments, radiusSegments } = this.calculateSnakeGeometryQualityIndividual();
+
+    let points;
+
+    if(!isTurning) {
+      if(type === "head") {
+        points = [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(length + 0.5, 0, 0)
+        ];
+      } else {
+        points = [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3((1 - length), 0, 0)
+        ];
+      }
+    } else {
+      if(type === "head") {
+        points = [
+          new THREE.Vector3(0.5, 0.5 * length, 0),
+          new THREE.Vector3(0.5, 0, 0),
+          new THREE.Vector3(0, 0, 0)
+        ];
+      } else {
+        points = [
+          new THREE.Vector3(-0.5, -0.5 * (1 - length), 0),
+          new THREE.Vector3(-0.5, 0, 0),
+          new THREE.Vector3(0, 0, 0)
+        ];
+      }
+    }
+
+    const curve = new THREE.CatmullRomCurve3(points);
+
+    this.transitionSegmentGeometryCacheParams = { tubularSegments, radiusSegments };
+
+    return new THREE.TubeGeometry(curve, tubularSegments, 0.35, radiusSegments, false);
+  }
+
+  createPixelSnakeSegmentGeometry(length, type, isTurning) {
+    if (!isTurning) {
+      const w = type === "head" ? length + 0.5 : (1 - length);
+      const geo = new THREE.BoxGeometry(w, 1, 0.7);
+      geo.translate(w / 2, 0, 0);
+      return geo;
+    }
+
+    if (type === "head") {
+      const geoH = new THREE.BoxGeometry(0.5, 1, 0.7);
+      geoH.translate(0.25, 0, 0);
+      const geoV = new THREE.BoxGeometry(1, 0.5 * length, 0.7);
+      geoV.translate(0.5, 0.5 * length / 2, 0);
+      return { isLShape: true, geoH, geoV };
+    } else {
+      const geoH = new THREE.BoxGeometry(0.5, 1, 0.7);
+      geoH.translate(-0.25, 0, 0);
+      const geoV = new THREE.BoxGeometry(1, 0.5 * (1 - length), 0.7);
+      geoV.translate(-0.5, -0.5 * (1 - length) / 2, 0);
+      return { isLShape: true, geoH, geoV };
+    }
+  }
+
+  getTransitionCacheKey(type, animationPercentage, isTurning) {
+    return `${type}${isTurning ? "_turn_" : "_"}${animationPercentage.toFixed(2)}`;
+  }
+
+  updateSnakeTransition(snakeIndex, snake, type) {
+    const snakeMeshes = this.snakesMeshes[snakeIndex];
+    const meshKey = type + "TransitionMesh";
+    const snakePart = type === "head" ? 0 : -1;
+
+    const parentMesh = type === "head" ? snakeMeshes.headMesh : snakeMeshes.tailMesh;
+
+    if(!parentMesh) {
+      return;
+    }
+
+    const animationPercentage = this.calculateAnimationPercentage(snake, snakePart);
+    const caseSize = 1;
+    const length = caseSize * animationPercentage;
+
+    const currentDir = type === "head"
+      ? this.getSnakeDirection(snake, 0, snake.getHeadPosition())
+      : this.getSnakeDirection(snake, -1, snake.getTailPosition());
+
+    const nextDir = type === "head"
+      ? this.getSnakeDirection(snake, 0, snake.get(1))
+      : this.getSnakeDirection(snake, -1, snake.get(snake.length() - 2));
+
+    const currentGraphicDirection = this.getSnakePartGraphicDirection(snakePart, snake);
+    const isTurning = this.isSnakePartTurning(snake, snakePart);
+    const cacheKey = this.getTransitionCacheKey(type, animationPercentage, isTurning);
+    
+    this.updateSnakeTransitionGeometry(cacheKey, length, type, isTurning, snakeMeshes, meshKey);
+
+    const meshPosition = this.calculateSnakeTransitionMeshPosition(currentDir, nextDir, type, animationPercentage,
+      currentGraphicDirection, length, isTurning, parentMesh, snake);
+
+    const inGrid =
+      meshPosition.x >= -this.grid.width / 2 - 1 &&
+      meshPosition.x <= this.grid.width / 2 + 1 &&
+      meshPosition.y >= -this.grid.height / 2 - 1 &&
+      meshPosition.y <= this.grid.height / 2 + 1;
+
+    if(type === "tail" && animationPercentage === 1.0) {
+      snakeMeshes[meshKey].visible = false;
+      return;
+    } else {
+      snakeMeshes[meshKey].visible = inGrid;
+    }
+    
+    snakeMeshes[meshKey].position.copy(meshPosition);
+    
+    snakeMeshes[meshKey].rotation.x = 0;
+    snakeMeshes[meshKey].rotation.y = 0;
+    snakeMeshes[meshKey].rotation.z = this.getSnakeTransitionRotationFromDirection(currentGraphicDirection, type);
+
+    if(isTurning) {
+      const mirror = this.getTurningMirror(currentGraphicDirection, currentDir, type);
+
+      snakeMeshes[meshKey].rotation.y += mirror.rotation.y;
+      snakeMeshes[meshKey].rotation.z += mirror.rotation.z;
+
+      snakeMeshes[meshKey].position.x += mirror.position.x;
+      snakeMeshes[meshKey].position.y += mirror.position.y;
+    }
+  }
+
+  calculateSnakeTransitionMeshPosition(currentDir, nextDir, type, animationPercentage, currentGraphicDirection, length, isTurning, parentMesh, snake) {
+    const margin = this.getSnakeMargin(currentDir, nextDir, type, false, animationPercentage);
+    const offset = new THREE.Vector3(0, 0, 0);
+
+    switch(currentGraphicDirection) {
+    case GameConstants.Direction.UP: offset.y = (type === "head" ? -length : -0.15); break;
+    case GameConstants.Direction.DOWN: offset.y = (type === "head" ? length : 0.15); break;
+    case GameConstants.Direction.RIGHT: offset.x = (type === "head" ? -length : -0.15); break;
+    case GameConstants.Direction.LEFT: offset.x = (type === "head" ? length : 0.15); break;
+    case GameConstants.Direction.ANGLE_1: offset.y = -0.5; break;
+    case GameConstants.Direction.ANGLE_2: offset.x = 0.5; break;
+    case GameConstants.Direction.ANGLE_3: offset.y = 0.5; break;
+    case GameConstants.Direction.ANGLE_4: offset.x = -0.5; break;
+    }
+
+    offset.add(new THREE.Vector3(margin.x, margin.y, 0));
+
+    let meshPosition = null;
+
+    if(!isTurning) {
+      meshPosition = parentMesh.position.clone().add(offset);
+    } else {
+      const currentPosition = type === "head"
+        ? snake.get(1)
+        : snake.get(snake.length() - 1);
+
+      const position3D = this.gridPositionTo3DPosition(currentPosition);
+
+      if(type === "head") {
+        switch (currentDir) {
+        case GameConstants.Direction.UP:
+          position3D.y += 0.35; break;
+        case GameConstants.Direction.RIGHT:
+          position3D.x += 0.35; break;
+        case GameConstants.Direction.DOWN:
+          position3D.y -= 0.35; break;
+        case GameConstants.Direction.LEFT:
+          position3D.x -= 0.35; break;
+        }
+      } else {
+        switch (currentDir) {
+        case GameConstants.Direction.UP:
+          position3D.y -= 0.35; break;
+        case GameConstants.Direction.RIGHT:
+          position3D.x -= 0.35; break;
+        case GameConstants.Direction.DOWN:
+          position3D.y += 0.35; break;
+        case GameConstants.Direction.LEFT:
+          position3D.x += 0.35; break;
+        }
+      }
+
+      meshPosition = new THREE.Vector3(position3D.x, position3D.y, 0.3).clone().add(offset);
+    }
+
+    return meshPosition;
+  }
+
+  updateSnakeTransitionGeometry(cacheKey, length, type, isTurning, snakeMeshes, meshKey) {
+    if(!this.transitionSegmentGeometryCache) {
+      this.transitionSegmentGeometryCache = {};
+    }
+
+    let geometry = this.transitionSegmentGeometryCache[cacheKey];
+
+    if(!geometry) {
+      geometry = this.graphicSkin === "pixel"
+        ? this.createPixelSnakeSegmentGeometry(length, type, isTurning)
+        : this.createGenericSnakeSegmentGeometry(length, type, isTurning);
+
+      this.transitionSegmentGeometryCache[cacheKey] = geometry;
+    }
+
+    if(this.graphicSkin === "pixel" && geometry.isLShape) {
+      if(!snakeMeshes[meshKey]) {
+        const meshH = new THREE.Mesh(geometry.geoH, snakeMeshes.snakeMaterial);
+        meshH.castShadow = true;
+        meshH.receiveShadow = true;
+        this.snakesGroup.add(meshH);
+        snakeMeshes[meshKey] = meshH;
+      } else if(snakeMeshes[meshKey].geometry !== geometry.geoH) {
+        snakeMeshes[meshKey].geometry.dispose();
+        snakeMeshes[meshKey].geometry = geometry.geoH;
+      }
+    } else {
+      if(!snakeMeshes[meshKey]) {
+        const mesh = new THREE.Mesh(geometry, snakeMeshes.snakeMaterial);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.snakesGroup.add(mesh);
+        snakeMeshes[meshKey] = mesh;
+      } else if(snakeMeshes[meshKey].geometry !== geometry) {
+        snakeMeshes[meshKey].geometry.dispose();
+        snakeMeshes[meshKey].geometry = geometry;
+      }
+    }
+  }
+
+  getTurningMirror(currentGraphicDirection, dir, type) {
+    const mirrorCases = {
+      head: {
+        [GameConstants.Direction.ANGLE_2]: { dir: GameConstants.Direction.RIGHT, rot: [-Math.PI / 2, Math.PI], pos: [-0.5, -0.5] },
+        [GameConstants.Direction.ANGLE_4]: { dir: GameConstants.Direction.LEFT, rot: [-Math.PI / 2, Math.PI], pos: [0.5, 0.5] },
+        [GameConstants.Direction.ANGLE_1]: { dir: GameConstants.Direction.DOWN, rot: [Math.PI / 2, -Math.PI], pos: [-0.5, 0.5] },
+        [GameConstants.Direction.ANGLE_3]: { dir: GameConstants.Direction.UP, rot: [Math.PI / 2, -Math.PI], pos: [0.5, -0.5] }
+      },
+      tail: {
+        [GameConstants.Direction.ANGLE_2]: { dir: GameConstants.Direction.LEFT, rot: [-Math.PI / 2, Math.PI], pos: [-0.5, -0.5] },
+        [GameConstants.Direction.ANGLE_4]: { dir: GameConstants.Direction.RIGHT, rot: [-Math.PI / 2, Math.PI], pos: [0.5, 0.5] },
+        [GameConstants.Direction.ANGLE_1]: { dir: GameConstants.Direction.UP, rot: [Math.PI / 2, -Math.PI], pos: [-0.5, 0.5] },
+        [GameConstants.Direction.ANGLE_3]: { dir: GameConstants.Direction.DOWN, rot: [Math.PI / 2, -Math.PI], pos: [0.5, -0.5] }
+      }
+    };
+
+    const cases = mirrorCases[type][currentGraphicDirection];
+
+    if(cases && dir === cases.dir) {
+      return {
+        rotation: { z: cases.rot[0], y: cases.rot[1] },
+        position: { x: cases.pos[0], y: cases.pos[1] }
+      };
+    }
+
+    return { rotation: { z: 0, y: 0 }, position: { x: 0, y: 0 } };
+  }
+
+  getSnakeTransitionRotationFromDirection(direction, type) {
+    if(type === "head") {
+      return {
+        [GameConstants.Direction.RIGHT]: 0,
+        [GameConstants.Direction.LEFT]: -Math.PI,
+        [GameConstants.Direction.DOWN]: -Math.PI / 2,
+        [GameConstants.Direction.UP]: Math.PI / 2,
+        [GameConstants.Direction.ANGLE_1]: Math.PI / 2,
+        [GameConstants.Direction.ANGLE_2]: Math.PI,
+        [GameConstants.Direction.ANGLE_3]: -Math.PI / 2,
+        [GameConstants.Direction.ANGLE_4]: 0
+      }[direction] ?? 0;
+    } else {
+      return {
+        [GameConstants.Direction.RIGHT]: 0,
+        [GameConstants.Direction.LEFT]: -Math.PI,
+        [GameConstants.Direction.DOWN]: -Math.PI / 2,
+        [GameConstants.Direction.UP]: Math.PI / 2,
+        [GameConstants.Direction.ANGLE_1]: -Math.PI / 2,
+        [GameConstants.Direction.ANGLE_2]: 0,
+        [GameConstants.Direction.ANGLE_3]: Math.PI / 2,
+        [GameConstants.Direction.ANGLE_4]: Math.PI
+      }[direction] ?? 0;
+    }
+  }
+
+  resetSnakeTransitionCache() {
+    if(this.transitionSegmentGeometryCache) {
+      for(const k in this.transitionSegmentGeometryCache) {
+        const segment = this.transitionSegmentGeometryCache[k];
+
+        if(segment?.isLShape) {
+          segment.geoH?.dispose();
+          segment.geoV?.dispose();
+        } else {
+          segment?.dispose();
+        }
+      }
+    }
+
+    this.transitionSegmentGeometryCache = {};
+  }
+
+  clearSnakeTransition(snakeIndex, options) {
+    const { type } = options;
+    const snakeMeshes = this.snakesMeshes[snakeIndex];
+
+    const transitionMeshKey = type + "TransitionMesh";
+
+    const oldTransitionMesh = snakeMeshes[transitionMeshKey];
+
+    if(oldTransitionMesh) {
+      this.disposeMesh(oldTransitionMesh);
+      this.snakesGroup.remove(oldTransitionMesh);
+    }
+  }
+
+  /** Snake body (segments) meshes handling */
+
+  calculateSnakeSegmentsPositions(snake) {
+    const segments = [];
+    let currentSegment = [];
+
+    let previousPosition = null;
+
+    for(let i = 0; i < snake.length(); i++) {
+      const currentPosition = snake.get(i);
+      const currentPosition3D = this.gridPositionTo3DPosition(currentPosition);
+
+      const currentPositionData = {
+        vector: new THREE.Vector3(
+          currentPosition3D.x,
+          currentPosition3D.y,
+          0.3
+        ),
+        direction: this.getSnakeDirection(snake, i, currentPosition)
+      };
+
+      const direction = snake.get(i).direction;
+
+      if(i === 0) {
+        switch(direction) {
+        case GameConstants.Direction.RIGHT: currentPositionData.vector.x -= 0.6; break;
+        case GameConstants.Direction.LEFT:  currentPositionData.vector.x += 0.6; break;
+        case GameConstants.Direction.BOTTOM: currentPositionData.vector.y += 0.6; break;
+        case GameConstants.Direction.TOP:    currentPositionData.vector.y -= 0.6; break;
+        }
+      }
+
+      if(previousPosition) {
+        const dx = currentPosition.x - previousPosition.x;
+        const dy = currentPosition.y - previousPosition.y;
+
+        const wrappedX = Math.abs(dx) >= this.grid.width - 1;
+        const wrappedY = Math.abs(dy) >= this.grid.height - 1;
+
+        if(wrappedX || wrappedY) {
+          const previousPosition3D = this.gridPositionTo3DPosition(previousPosition);
+
+          const previousPositionVector = new THREE.Vector3(
+            previousPosition3D.x,
+            previousPosition3D.y,
+            0.3
+          );
+
+          const wrapOffset = new THREE.Vector3(
+            wrappedX ? -Math.sign(dx) : 0,
+            wrappedY ? Math.sign(dy) : 0,
+            0
+          );
+
+          const fakeEnd = {
+            vector: previousPositionVector.clone().add(wrapOffset),
+            direction: null
+          };
+
+          const fakeStart = {
+            vector: currentPositionData.vector.clone().sub(wrapOffset),
+            direction: null
+          };
+
+          currentSegment.push(fakeEnd);
+
+          if(currentSegment.length >= 2) {
+            segments.push(currentSegment);
+          }
+
+          currentSegment = [fakeStart];
+        }
+      }
+
+      currentSegment.push(currentPositionData);
+      previousPosition = currentPosition;
+    }
+
+    if(currentSegment.length >= 2) {
+      segments.push(currentSegment);
+    }
+
+    return segments;
+  }
+
+  createSegmentMesh(index, segment, straightMesh, curveMesh, curveMesh2) {
+    const isAngle = this.isAngleDirection(segment.direction);
+    const mesh = isAngle ? curveMesh : straightMesh;
+
+    const segmentTransform = new THREE.Object3D();
+    segmentTransform.position.set(segment.vector.x, segment.vector.y, segment.vector.z);
+
+    switch(segment.direction) {
+    case GameConstants.Direction.ANGLE_1:
+      segmentTransform.rotation.z = Math.PI / 2;
+      segmentTransform.position.y -= 0.5;
+      break;
+    case GameConstants.Direction.ANGLE_2:
+      segmentTransform.rotation.z = Math.PI;
+      segmentTransform.position.x += 0.5;
+      break;
+    case GameConstants.Direction.ANGLE_3:
+      segmentTransform.rotation.z = -Math.PI / 2;
+      segmentTransform.position.y += 0.5;
+      break;
+    case GameConstants.Direction.ANGLE_4:
+      segmentTransform.rotation.z = 0;
+      segmentTransform.position.x -= 0.5;
+      break;
+    case GameConstants.Direction.TOP:
+    case GameConstants.Direction.BOTTOM:
+      segmentTransform.rotation.z = Math.PI / 2;
+      break;
+    case GameConstants.Direction.LEFT:
+    case GameConstants.Direction.RIGHT:
+      segmentTransform.rotation.z = 0;
+      break;
+    }
+
+    segmentTransform.updateMatrix();
+    mesh.setMatrixAt(index, segmentTransform.matrix);
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    if(isAngle && curveMesh2) {
+      curveMesh2.setMatrixAt(index, segmentTransform.matrix);
+      curveMesh2.castShadow = true;
+      curveMesh2.receiveShadow = true;
+    }
+
+    return mesh;
+  }
+
+  updateSnakeBodyGeometry(snakeIndex, snake) {
+    const snakeMeshes = this.snakesMeshes[snakeIndex];
+    const snakeMaterial = snakeMeshes.snakeMaterial;
+    const segmentsPositions = this.calculateSnakeSegmentsPositions(snake);
+
+    const snakeBodyMeshes = this.snakeBodyRenderingMethod === "TUBES" ? 
+      this.generateSnakeBodyMeshTubes(segmentsPositions, snake, snakeMaterial) :
+      this.generateSnakeBodyMeshIndividual(segmentsPositions, snakeMaterial);
+
+    if(snakeBodyMeshes && snakeBodyMeshes.length > 0) {
+      this.snakesGroup.add(...snakeBodyMeshes);
+    }
+
+    snakeMeshes.bodyParts = snakeBodyMeshes;
+    snakeMeshes.firstRender = false;
+  }
+
+  getSnakeBodyGeometryTubes(snake, points) {
+    const { tubularSegments, radiusSegments } = this.calculateSnakeGeometryQualityTubes(snake);
+
+    const curve = new THREE.CatmullRomCurve3(points, false);
+   
+    return new THREE.TubeGeometry(curve, tubularSegments, 0.35, radiusSegments, false);
+  }
+
+  generateSnakeBodyMeshTubes(segmentsPositions, snake, snakeMaterial) {
+    const tubesGeometries = [];
+
+    for(const segment of segmentsPositions) {
+      const geometry = this.getSnakeBodyGeometryTubes(snake, segment.map(segment => segment.vector));
+      tubesGeometries.push(geometry);
+    }
+
+    const tubesMeshes = [];
+
+    for(const geometry of tubesGeometries) {
+      const tube = new THREE.Mesh(geometry, snakeMaterial);
+      tube.castShadow = true;
+      tube.receiveShadow = true;
+
+      this.snakesGroup.add(tube);
+
+      tubesMeshes.push(tube);
+    }
+
+    return tubesMeshes;
+  }
+
+  getSegmentGeometries(tubularSegments, radiusSegments, radius = 0.35) {
+    const key = `${tubularSegments}_${radiusSegments}_${radius}`;
+
+    if(this.segmentGeometryCache[key]) {
+      return this.segmentGeometryCache[key];
+    }
+
+    let straightGeometry, curveGeometry, curveGeometry2;
+
+    if(this.graphicSkin === "pixel") {
+      straightGeometry = new THREE.BoxGeometry(1, 1, 0.7);
+
+      curveGeometry = new THREE.BoxGeometry(1, 1, 0.7);
+      curveGeometry.translate(0.25, 0, 0);
+      curveGeometry2 = new THREE.BoxGeometry(1, 1, 0.7);
+      curveGeometry2.translate(0.5, 0.25, 0);
+    } else {
+      const straightCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-0.5, 0, 0),
+        new THREE.Vector3(0.5, 0, 0)
+      ]);
+      straightGeometry = new THREE.TubeGeometry(straightCurve, tubularSegments, radius, radiusSegments, false);
+
+      const curveCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0.5, 0, 0),
+        new THREE.Vector3(0.5, 0.5, 0)
+      ]);
+      curveGeometry = new THREE.TubeGeometry(curveCurve, tubularSegments, radius, radiusSegments, false);
+      curveGeometry2 = null;
+    }
+
+    this.segmentGeometryCache[key] = { 
+      straight: straightGeometry, 
+      curve: curveGeometry,
+      curve2: curveGeometry2
+    };
+
+    this.segmentGeometryCacheParams = { tubularSegments, radiusSegments };
+
+    return this.segmentGeometryCache[key];
+  }
+
+  createSnakeSegmentMeshes(material, segmentsPositions) {
+    const { radiusSegments, tubularSegments } = this.calculateSnakeGeometryQualityIndividual();
+
+    const gridFlat = segmentsPositions
+      .map((segment, segIndex) => 
+        segIndex === 0 
+          ? segment.slice(2, -1)
+          : segment.slice(1, -1)
+      )
+      .flat();
+
+    const straightCount = gridFlat.filter(part => !this.isAngleDirection(part.direction)).length;
+    const curveCount = gridFlat.filter(part => this.isAngleDirection(part.direction)).length;
+
+    const segmentsMeshes = { straightMesh: null, curveMesh: null, curve2: null };
+
+    const { straight, curve, curve2 } = this.getSegmentGeometries(tubularSegments, radiusSegments);
+
+    if(straightCount > 0) {
+      segmentsMeshes.straightMesh = new THREE.InstancedMesh(straight, material, straightCount);
+    }
+
+    if(curveCount > 0) {
+      segmentsMeshes.curveMesh = new THREE.InstancedMesh(curve, material, curveCount);
+
+      if(curve2) {
+        segmentsMeshes.curveMesh2 = new THREE.InstancedMesh(curve2, material, curveCount);
+      }
+    }
+
+    return segmentsMeshes;
+  }
+
+  resetSnakeSegmentCache() {
+    if(this.segmentGeometryCache) {
+      for(const k in this.segmentGeometryCache) {
+        const segment = this.segmentGeometryCache[k];
+
+        if(segment) {
+          segment.straight?.dispose();
+          segment.curve?.dispose();
+          segment.curve2?.dispose();
+        }
+      }
+    }
+
+    this.segmentGeometryCache = {};
+  }
+
+  generateSnakeBodyMeshIndividual(segmentsPositions, snakeMaterial) {
+    const { straightMesh, curveMesh, curveMesh2 } = this.createSnakeSegmentMeshes(snakeMaterial, segmentsPositions);
+
+    let segmentIndex = 0;
+    let straightIndex = 0;
+    let curveIndex = 0;
+
+    for(const segment of segmentsPositions) {
+      for(let i = 1; i < segment.length - 1; i++) {
+        // Skip the first position as it is drawn differently
+        if(segmentIndex === 0 && i === 1) {
+          continue;
+        }
+
+        const part = segment[i];
+        const isAngle = this.isAngleDirection(part.direction);
+        
+        this.createSegmentMesh(isAngle ? curveIndex : straightIndex, part, straightMesh, curveMesh, curveMesh2);
+
+        if(isAngle) {
+          curveIndex++;
+        } else {
+          straightIndex++;
+        }
+      }
+
+      segmentIndex++;
+    }
+    
+    return [straightMesh, curveMesh, curveMesh2].filter(mesh => mesh != null);
+  }
+
+  /** Snake eyes handling */
+
+  createSnakeEyes(snake) {
+    const group = new THREE.Group();
+    const whiteMat = this.getMaterial({ color: 0xffffff });
+    const blackMat = this.getMaterial({ color: 0x000000 });
+
+    const eyeGeom = new THREE.SphereGeometry(0.07, 8, 8);
+    const eye1 = new THREE.Mesh(eyeGeom, whiteMat);
+    const eye2 = new THREE.Mesh(eyeGeom, whiteMat);
+
+    eye1.position.set(0.18, 0.15, 0.3);
+    eye2.position.set(-0.18, 0.15, 0.3);
+
+    const eye1Base = new THREE.Vector3(0.18, 0.15, 0.3);
+    const eye2Base = new THREE.Vector3(-0.18, 0.15, 0.3);
+    eye1.position.copy(eye1Base);
+    eye2.position.copy(eye2Base);
+
+    group.add(eye1, eye2);
+
+    if(snake.gameOver) {
+      const barGeom = new THREE.BoxGeometry(0.12, 0.04, 0.02);
+
+      const zOffset = 0.07;
+
+      const bar1a = new THREE.Mesh(barGeom, blackMat);
+      const bar1b = new THREE.Mesh(barGeom, blackMat);
+      bar1a.rotation.z = Math.PI / 4;
+      bar1b.rotation.z = -Math.PI / 4;
+      bar1a.position.copy(eye1.position).add(new THREE.Vector3(0, 0, zOffset));
+      bar1b.position.copy(eye1.position).add(new THREE.Vector3(0, 0, zOffset));
+
+      const bar2a = new THREE.Mesh(barGeom, blackMat);
+      const bar2b = new THREE.Mesh(barGeom, blackMat);
+      bar2a.rotation.z = Math.PI / 4;
+      bar2b.rotation.z = -Math.PI / 4;
+      bar2a.position.copy(eye2.position).add(new THREE.Vector3(0, 0, zOffset));
+      bar2b.position.copy(eye2.position).add(new THREE.Vector3(0, 0, zOffset));
+
+      group.add(bar1a, bar1b, bar2a, bar2b);
+
+      group.userData.pupils = null;
+      group.userData.eyeBases = [eye1Base, eye2Base];
+    } else {
+      const pupilGeom = new THREE.SphereGeometry(0.045, 8, 8);
+      const pupil1 = new THREE.Mesh(pupilGeom, blackMat);
+      const pupil2 = new THREE.Mesh(pupilGeom, blackMat);
+
+      pupil1.position.copy(eye1.position).add(new THREE.Vector3(0, 0.03, 0.03));
+      pupil2.position.copy(eye2.position).add(new THREE.Vector3(0, 0.03, 0.03));
+
+      group.add(pupil1, pupil2);
+
+      group.userData.pupils = [pupil1, pupil2];
+      group.userData.eyeBases = [eye1Base.clone(), eye2Base.clone()];
+      group.userData.pupilBases = [pupil1.position.clone(), pupil2.position.clone()];
+    }
+
+    return group;
+  }
+
+  updateEyesForSnake(snakeIndex) {
+    const meshes = this.snakesMeshes[snakeIndex];
+    
+    if(!meshes?.eyesGroup) {
+      return;
+    }
+
+    const group      = meshes.eyesGroup;
+    const pupils     = group.userData.pupils;
+    const pupilBases = group.userData.pupilBases;
+
+    if(!pupils || !pupilBases || pupils.length !== 2) {
+      return;
+    }
+
+    const headMesh = meshes.headMesh;
+
+    if(!headMesh) {
+      return;
+    }
+
+    const lerpT = this.disableAnimation ? 1 : 0.12;
+
+    const headPosWorld = headMesh.getWorldPosition(new THREE.Vector3());
+    const resolved     = this.resolveTargetFruit(headPosWorld);
+
+    const hasFruit = !!(resolved && resolved.fruit && resolved.dist <= this.EYE_MAX_DIST);
+
+    let localFruit = null;
+
+    if(hasFruit) {
+      localFruit = resolved.fruit.clone();
+      group.worldToLocal(localFruit);
+    }
+
+    const forwardAngle = this.calculateForwardAngle(headMesh, group);
+    const eyeCenter = pupilBases[0].clone().add(pupilBases[1]).multiplyScalar(0.5);
+    const headGridPos = this.snakes[snakeIndex].getHeadPosition();
+    const isInFOV = this.isInFieldOfView(localFruit, eyeCenter, forwardAngle)
+      && this.isLineOfSightClear(headGridPos, resolved.fruit);
+
+    for(let i = 0; i < 2; i++) {
+      const base   = pupilBases[i].clone();
+      const target = isInFOV ? this.computePupilTarget(localFruit, base) : null;
+      this.applyPupilAnimation(pupils[i], base, pupilBases[i].z, target, lerpT);
+    }
+  }
+
+  calculateForwardAngle(headMesh, group) {
+    const worldForward = new THREE.Vector3(0, 1, 0);
+
+    worldForward.transformDirection(headMesh.matrixWorld);
+    worldForward.transformDirection(group.matrixWorld.clone().invert());
+
+    return Math.atan2(worldForward.y, worldForward.x);
+  }
+
+  resolveTargetFruit(headPosWorld) {
+    let closestRegularFruit = null;
+    let closestRegularDist = Infinity;
+
+    for(const fruitInstance of this.fruitInstancesMap.values()) {
+      const fruitPos = new THREE.Vector3().copy(fruitInstance.mesh.position);
+      const dist = headPosWorld.distanceTo(fruitPos);
+      if(dist < closestRegularDist) {
+        closestRegularDist = dist;
+        closestRegularFruit = fruitPos;
+      }
+    }
+
+    let closestGoldFruit = null;
+    let closestGoldDist = Infinity;
+
+    if(this.fruitModelGold && this.fruitModelGold.visible) {
+      closestGoldFruit = new THREE.Vector3().copy(this.fruitModelGold.position);
+      closestGoldDist = headPosWorld.distanceTo(closestGoldFruit);
+    }
+
+    if(closestGoldFruit && closestRegularFruit) {
+      const pickGold = closestGoldDist <= closestRegularDist + this.EYE_GOLD_DELTA;
+      return { fruit: pickGold ? closestGoldFruit : closestRegularFruit, dist: pickGold ? closestGoldDist : closestRegularDist };
+    } else if(closestGoldFruit) {
+      return { fruit: closestGoldFruit, dist: closestGoldDist };
+    } else if(closestRegularFruit) {
+      return { fruit: closestRegularFruit, dist: closestRegularDist };
+    }
+
+    return null;
+  }
+
+  isInFieldOfView(localFruit, base, forwardAngle = 0) {
+    if(!localFruit) {
+      return false;
+    }
+    
+    const fruitXY = new THREE.Vector2(localFruit.x, localFruit.y);
+    const baseXY  = new THREE.Vector2(base.x, base.y);
+    const dir     = fruitXY.clone().sub(baseXY);
+
+    if(dir.lengthSq() < 1e-6) {
+      return false;
+    }
+
+    const d = dir.length();
+    const angularRadius = Math.atan2(this.EYE_FRUIT_RADIUS, d);
+    const fruitAngle    = Math.atan2(dir.y, dir.x);
+
+    let delta = fruitAngle - forwardAngle;
+
+    while(delta >  Math.PI) {
+      delta -= 2 * Math.PI;
+    }
+
+    while(delta < -Math.PI) {
+      delta += 2 * Math.PI;
+    }
+
+    const halfFov = (this.EYE_FOV_DEG / 2) * (Math.PI / 180);
+
+    return Math.abs(delta) <= halfFov + angularRadius;
+  }
+
+  isLineOfSightClear(headGridPos, fruitWorldPos) {
+    const halfW = this.grid.width / 2;
+    const halfH = this.grid.height / 2;
+
+    const fruitGridX = Math.round(fruitWorldPos.x + halfW - 0.5);
+    const fruitGridY = Math.round((this.grid.height - 1) - (fruitWorldPos.y + halfH - 0.5));
+
+    let x0 = headGridPos.x, y0 = headGridPos.y;
+    const x1 = fruitGridX,  y1 = fruitGridY;
+
+    const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    const dy = Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+
+    while(true) {
+      if(!(x0 === headGridPos.x && y0 === headGridPos.y)) {
+        const caseType = this.grid.get(new Position(x0, y0));
+
+        if(caseType === GameConstants.CaseType.WALL) {
+          return false;
+        }
+      }
+
+      if(x0 === x1 && y0 === y1) {
+        break;
+      }
+
+      const e2 = 2 * err;
+
+      if(e2 > -dy) { err -= dy; x0 += sx; }
+      if(e2 <  dx) { err += dx; y0 += sy; }
+    }
+
+    return true;
+  }
+
+  computePupilTarget(localFruit, base) {
+    if(!localFruit) {
+      return null;
+    }
+
+    const fruitXY = new THREE.Vector2(localFruit.x, localFruit.y);
+    const baseXY  = new THREE.Vector2(base.x, base.y);
+
+    const dir = fruitXY.sub(baseXY);
+    dir.z = 0;
+
+    if(dir.lengthSq() < 1e-6) {
+      return null;
+    }
+
+    dir.normalize();
+
+    return {
+      targetAngle:  Math.atan2(dir.y, dir.x),
+      targetRadius: this.EYE_MAX_OFFSET,
+    };
+  }
+
+  applyPupilAnimation(pupil, base, pupilBaseZ, target, lerpT) {
+    const fromBase = pupil.position.clone().sub(base);
+    fromBase.z = 0;
+    const currentRadius = Math.min(fromBase.length(), this.EYE_MAX_OFFSET);
+    const currentAngle  = currentRadius > 1e-6
+      ? Math.atan2(fromBase.y, fromBase.x)
+      : 0;
+
+    let newAngle, newRadius;
+
+    if(!target) {
+      newRadius = currentRadius * (1 - lerpT);
+      newAngle  = currentAngle;
+    } else {
+      let delta = target.targetAngle - currentAngle;
+      while(delta >  Math.PI) {
+        delta -= 2 * Math.PI;
+      }
+
+      while(delta < -Math.PI) {
+        delta += 2 * Math.PI;
+      }
+
+      newAngle  = currentAngle + delta * lerpT;
+      newRadius = Math.min(
+        currentRadius + (target.targetRadius - currentRadius) * lerpT,
+        this.EYE_MAX_OFFSET
+      );
+    }
+
+    const pos = base.clone().add(
+      new THREE.Vector3(Math.cos(newAngle) * newRadius, Math.sin(newAngle) * newRadius, 0)
+    );
+
+    pos.z = pupilBaseZ;
+    pupil.position.copy(pos);
+  }
+
+  /** Snake meshes utility methods */
+
+  getSnakeMaterial(snake) {
+    const baseColor = chroma(this.baseSnakeColor);
+    const rotated = baseColor.set("hsl.h", (baseColor.get("hsl.h") + snake.color) % 360);
+    const [r, g, b] = rotated.rgb();
+    const snakeColor = new THREE.Color(r / 255, g / 255, b / 255);
+    snakeColor.convertSRGBToLinear();
+
+    return this.getMaterial({ color: snakeColor, roughness: 0.6, metalness: 0.25 });
+  }
+
+  calculateSnakeGeometryQualityTubes(snake) {
+    const normalizedLength = Math.min(snake.length() / this.qualitySettings.snakeSegments.maxLength, 1);
+
+    const tubularSegments = Math.floor(this.qualitySettings.snakeSegments.minTubular + normalizedLength * (this.qualitySettings.snakeSegments.maxTubular - this.qualitySettings.snakeSegments.minTubular));
+    const radiusSegments = Math.floor(this.qualitySettings.snakeSegments.minRadius + normalizedLength * (this.qualitySettings.snakeSegments.maxRadius - this.qualitySettings.snakeSegments.minRadius));
+
+    return { tubularSegments, radiusSegments };
+  }
+
+  calculateSnakeGeometryQualityIndividual() {
+    const gridArea = this.grid.width * this.grid.height;
+    const normalizedGrid = Math.min(gridArea / this.qualitySettings.snakeSegments.maxGridArea, 1);
+
+    const allSnakesLength = this.snakes.reduce((sum, s) => sum + s.length(), 0);
+    const normalizedLength = Math.min(
+      allSnakesLength / (this.qualitySettings.snakeSegments.maxLength * this.snakes.length),
+      1
+    );
+
+    const rawFactor = (0.8 * normalizedGrid) + (0.2 * normalizedLength);
+    const factor = Math.pow(rawFactor, 0.5);
+
+    const snakeCount = this.snakes.length;
+
+    const qualityScale = Math.max(1 / (1 + snakeCount / 5), 0.1);
+
+    const { minTubular, maxTubular, minRadius, maxRadius } = this.qualitySettings.snakeSegments;
+
+    const softMaxTubular = Math.min((maxTubular / 2) * qualityScale, 128);
+    const softMaxRadius = Math.min((maxRadius / 2) * qualityScale, 64);
+
+    const tubularSegmentsRaw = softMaxTubular - factor * (softMaxTubular - minTubular);
+    const radiusSegmentsRaw = softMaxRadius - factor * (softMaxRadius - minRadius);
+
+    const tubularSegments = Math.max(minTubular, Math.round(tubularSegmentsRaw / 16) * 16);
+    const radiusSegments = Math.max(minRadius, Math.round(radiusSegmentsRaw / 8) * 8);
+
+    return { tubularSegments, radiusSegments };
+  }
+
+  calculateCaseSize(availableHeight, availableWidth) {
+    if(!this.camera || !this.width || !this.height) {
+      return super.calculateCaseSize(availableHeight, availableWidth);
+    }
+
+    try {
+      const depth = 0.5;
+
+      const p0 = new THREE.Vector3(0, 0, depth);
+      const p1 = new THREE.Vector3(1, 0, depth);
+      const p2 = new THREE.Vector3(0, 1, depth);
+
+      const projectToPixels = (v) => {
+        const projected = v.clone().project(this.camera);
+        const x = (projected.x + 1) / 2 * this.width;
+        const y = (1 - projected.y) / 2 * this.height;
+        return {
+          x,
+          y
+        };
+      };
+
+      const pos0 = projectToPixels(p0);
+      const pos1 = projectToPixels(p1);
+      const pos2 = projectToPixels(p2);
+
+      const caseWidth = Math.abs(pos1.x - pos0.x);
+      const caseHeight = Math.abs(pos2.y - pos0.y);
+
+      let caseSize = Math.min(caseWidth, caseHeight);
+      const widthPercent = availableWidth / (caseSize * this.grid.width);
+      const heightPercent = availableHeight / (caseSize * this.grid.height);
+
+      const percent = Math.min(widthPercent, heightPercent);
+      caseSize *= percent;
+
+      return Math.floor(caseSize);
+    } catch (e) {
+      console.warn("Fallback calculate case size", e);
+      return super.calculateCaseSize(availableHeight, availableWidth);
+    }
+  }
+
+  gridPositionTo3DPosition(position) {
+    const halfGridWidth = this.grid.width / 2;
+    const halfGridHeight = this.grid.height / 2;
+
+    const xPosition = position.x - halfGridWidth + 0.5;
+    const yPosition = (this.grid.height - 1 - position.y) - halfGridHeight + 0.5;
+
+    return {
+      x: xPosition,
+      y: yPosition
+    };
+  }
+
+  getSnakeScreenPosition(snake, caseSize, offsetX, offsetY) {
+    const snakeHead = snake.get(0);
+    const snakeFirstSegment = snake.get(1);
+    if(!snakeHead || !snakeFirstSegment) return { x: 0, y: 0};
+
+    const shouldAnimateText = !this.disableAnimation && !snake.gameOver && !this.gameFinished && !this.gameOver;
+    const pos3D = this.gridPositionTo3DPosition(shouldAnimateText ? snakeFirstSegment : snakeHead);
+
+    const worldPos = new THREE.Vector3(
+      pos3D.x - 0.5,
+      pos3D.y + 0.5,
+      0.5
+    );
+
+    if(shouldAnimateText) {
+      let progress = this.offsetFrame / (this.speed * GameConstants.Setting.TIME_MULTIPLIER);
+      progress = Math.min(progress, 1);
+      switch (snakeHead.direction) {
+      case GameConstants.Direction.UP: worldPos.y += progress; break;
+      case GameConstants.Direction.BOTTOM: worldPos.y -= progress; break;
+      case GameConstants.Direction.RIGHT: worldPos.x += progress; break;
+      case GameConstants.Direction.LEFT: worldPos.x -= progress; break;
+      }
+    }
+
+    const vector = worldPos.clone().project(this.camera);
+
+    const xInWebGL = (vector.x + 1) / 2 * this.width;
+    const yInWebGL = (1 - vector.y) / 2 * this.height;
+
+    const x = offsetX + xInWebGL;
+    const y = offsetY + yInWebGL;
+
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  cleanAfterGameExit() {
+    this.disposeScene();
+    this.disposeLights();
+    this.disposeCameras();
+    this.disposePostProcessing();
+    this.disposeTextures();
+    this.disposeFruitPool();
+    this.disposeSnakes();
+
+    this.controls?.dispose();
+    this.controls = null;
+
+    this.modelLoader?.clearAll();
+    this.modelLoader = null;
+
+    this.renderer?.dispose();
+    this.renderer?.forceContextLoss();
+    this.renderer?.domElement?.remove();
+    this.renderer = null;
+  }
+
+  disposeScene() {
+    if(this.scene) {
+      this.disposeGroup(this.gridGroup);
+      this.disposeGroup(this.snakesGroup);
+      this.disposeGroup(this.fruitsGroup);
+      this.disposeGroup(this.unknownGroup);
+
+      this.scene.remove(this.gridGroup, this.snakesGroup, this.fruitsGroup, this.unknownGroup);
+
+      this.gridGroup?.clear();
+      this.snakesGroup?.clear();
+      this.fruitsGroup?.clear();
+      this.unknownGroup?.clear();
+
+      this.unknownMaterial?.dispose();
+      this.unknownGeometry?.dispose();
+
+      this.scene?.clear();
+      this.scene = null;
+    }
+  }
+
+  disposeLights() {
+    for(const light of ["ambientLight", "dirLight"]) {
+      this[light]?.dispose();
+      this[light]?.clear();
+      this[light] = null;
+    }
+
+    for(const helper of ["lightHelper", "cameraHelper"]) {
+      this[helper]?.dispose();
+      this[helper]?.clear();
+      this[helper] = null;
+    }
+  }
+
+  disposeCameras() {
+    this.camera?.clear();
+    this.camera = null;
+
+    this.cubeCamera?.clear();
+    this.cubeCamera = null;
+
+    this.cubeRenderTarget?.dispose();
+    this.cubeRenderTarget = null;
+  }
+
+  disposePostProcessing() {
+    for(const pass of ["composer", "renderPass", "fxaaPass", "smaaPass", "outputPass"]) {
+      this[pass]?.dispose();
+      this[pass] = null;
+    }
+  }
+
+  disposeTextures() {
+    for(const tex of ["wallTexture", "wallTextureNormal", "wallTextureHeight", "wallTextureAO", "haloTexture"]) {
+      this[tex]?.dispose();
+      this[tex] = null;
+    }
+
+    this.fruitModel?.userData?.halo?.material?.dispose();
+    this.fruitModelGold?.userData?.halo?.material?.dispose();
+
+    for(const obj of ["fruitModel", "fruitModelGold", "fruitPointLight", "fruitGoldPointLight", "fruitHalo", "fruitGoldHalo"]) {
+      this[obj]?.clear();
+      this[obj] = null;
+    }
+
+    for(const instance of this.fruitInstancesMap.values()) {
+      this.cleanFruitInstance(instance);
+    }
+
+    this.fruitInstancesMap.clear();
+  }
+
+  disposeFruitPool() {
+    if(!this.fruitPool?.meshes) {
+      return;
+    }
+
+    for(let i = 0; i < this.fruitPool.meshes.length; i++) {
+      const mesh = this.fruitPool.meshes[i];
+      const light = this.fruitPool.lights[i];
+      const halo = this.fruitPool.halos[i];
+
+      this.disposeMesh(mesh);
+      this.fruitsGroup.remove(mesh);
+
+      light && this.fruitsGroup.remove(light);
+      halo && this.fruitsGroup.remove(halo);
+    }
+
+    this.fruitPool = {};
+  }
+
+  disposeSnakes() {
+    this.resetSnakeSegmentCache();
+    this.resetSnakeTransitionCache();
+    this.snakesMeshes = [];
+  }
+
+  set(snakes, grid, speed, offsetFrame, headerHeight, imageLoader, modelLoader, currentPlayer, gameFinished, countBeforePlay, spectatorMode, ticks, gameOver, onlineMode, paused) {
+    super.set(snakes, grid, speed, offsetFrame, headerHeight, imageLoader, modelLoader, currentPlayer, gameFinished, countBeforePlay, spectatorMode, ticks, gameOver, onlineMode, paused);
+  }
+}

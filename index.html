@@ -1,0 +1,787 @@
+<!--
+ * Copyright (C) 2019-2020 Eliastik (eliastiksofts.com)
+ *
+ * This file is part of "SnakeIA".
+ *
+ * "SnakeIA" is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * "SnakeIA" is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with "SnakeIA".  If not, see <http://www.gnu.org/licenses/>. -->
+<!doctype HTML>
+<html>
+  <head>
+    <meta charset="UTF-8"></meta>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#27ae60">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="icon" href="favicon.ico">
+    <!--[if IE]><link rel="shortcut icon" type="image/x-icon" href="favicon.ico" /><![endif]-->
+    <link href="assets/css/bootstrap.min.css" rel="stylesheet">
+    <link href="assets/css/flat-ui.min.css" rel="stylesheet">
+    <link href="assets/css/balloon.min.css" rel="stylesheet">
+    <link href="assets/css/main.css" rel="stylesheet">
+    <link href="assets/css/dark-theme.css" rel="stylesheet">
+    <link href="manifest.json" rel="manifest">
+    <title>SnakeIA</title>
+  </head>
+  <body class="text-center dark">
+    <div class="principal">
+      <div id="menu">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <div class="row mt-4" id="updateAvailable">
+            <div class="col">
+                <div class="alert alert-info">
+                    <strong><span class="fui-info-circle mr-2"></span> <span data-i18n="update.updateAvailable">Une mise à jour de l'application est disponible</span> (<span data-i18n="update.version">version</span> <span id="appUpdateVersion">?</span> <span data-i18n="update.of">du</span> <span id="appUpdateDate">?</span><span id="appUpdateDateLocalized">?</span>). <span data-i18n="update.current">Vous disposez actuellement de la version</span> <span id="appVersion">?</span>.</strong>
+                    <div class="vmiddle"><a href="#" class="btn btn-sm btn-primary" id="appDownloadLink"><span class="fui-export mr-2"></span> <span data-i18n="update.download">Télécharger la mise à jour</span></a> &nbsp; <a href="#" id="appDownloadURLGet" aria-label="" data-balloon-length="medium" data-balloon-pos="down"><span class="fui-link mr-2"></span></a> <a href="#" id="appUpdateChanges" aria-label="" data-balloon-length="medium" data-balloon-pos="down"><span class="fui-info-circle"></span></a></div>
+                </div>
+            </div>
+        </div>
+        <h1 class="h3 mb-3 font-weight-normal" data-i18n="menu.selectGame">Sélectionnez un mode de jeu :</h1>
+        <div class="menu-buttons">
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-info btn-block" id="soloAi" data-i18n="menu.soloAi">IA solo</button>
+            </div>
+          </div>
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-info btn-block" id="soloPlayer" data-i18n="menu.soloPlayer">Joueur solo</button>
+            </div>
+          </div>
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-info btn-block" id="playerVsAi" data-i18n="menu.playerVsAi">Joueur VS IA</button>
+            </div>
+          </div>
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-info btn-block" id="aiVsAi" data-i18n="menu.aiVsAi">IA VS IA</button>
+            </div>
+          </div>
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-info btn-block" id="battleRoyale" data-i18n="menu.battleRoyale">Battle Royale</button>
+            </div>
+          </div>
+          <hr />
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-primary btn-block" id="onlineBattleRoyale" data-i18n="menu.onlineBattleRoyale">Battle Royale en ligne</button>
+            </div>
+          </div>
+          <hr />
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-warning btn-block" id="levelsSoloPlayer" data-i18n="menu.levelsSoloPlayer">Niveaux (joueur solo)</button>
+            </div>
+          </div>
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-warning btn-block" id="levelsSoloAI" data-i18n="menu.levelsSoloAI">Niveaux (IA solo)</button>
+            </div>
+          </div>
+          <hr />
+          <div class="row mb-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-secondary btn-block" id="othersSettings"><span class="fui-gear mr-2"></span> <span data-i18n="menu.othersSettings">Paramètres</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="language">
+          <hr />
+          <div class="mb-1 row">
+            <label for="languageSelect" class="col-sm-4 col-form-label labelSettingsHome" data-i18n="menu.language">Langue :</label>
+            <div class="col-sm-8">
+              <select id="languageSelect" class="custom-select" rows="10" disabled></select>
+            </div>
+          </div>
+          <div class="mb-1 row">
+            <label for="graphicSkin" class="col-sm-4 col-form-label labelSettingsHome" data-i18n="menu.graphicSkin">Skin graphique :</label>
+            <div class="col-sm-8">
+              <select class="custom-select" id="graphicSkin">
+                <option value="flat" data-i18n="menu.flat" selected>Flat (par défaut)</option>
+                <option value="tropical" data-i18n="menu.tropical">Tropical</option>
+                <option value="pixel" data-i18n="menu.pixel">Pixel</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-1 row">
+            <label for="graphicType" class="col-sm-4 col-form-label labelSettingsHome" data-i18n="menu.graphicType">Type de graphismes :</label>
+            <div class="col-sm-8">
+              <div class="col d-flex p-0">
+                <select class="custom-select" id="graphicType">
+                  <option value="2d" data-i18n="menu.2d" selected>2D</option>
+                  <option value="3dMinimal" data-i18n="menu.3dMinimal">3D - Qualité minimale</option>
+                  <option value="3dLow" data-i18n="menu.3dLow">3D - Qualité faible</option>
+                  <option value="3dNormal" data-i18n="menu.3dNormal">3D - Qualité normale</option>
+                  <option value="3dMedium" data-i18n="menu.3dMedium">3D - Qualité moyenne</option>
+                  <option value="3dHigh" data-i18n="menu.3dHigh">3D - Qualité élevée</option>
+                  <option value="3dUltra" data-i18n="menu.3dUltra">3D - Qualité ultra</option>
+                  <option value="3dExtreme" data-i18n="menu.3dExtreme">3D - Qualité extrême</option>
+                  <option value="3dCustom" data-i18n="menu.3dCustom">3D - Qualité personnalisée</option>
+                </select>
+                <button class="btn btn-sm btn-primary ml-2" type="button" id="modalCustom3DQuality" style="display: none;"><span class="fui-gear"></span></button>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col">
+              <div class="custom-control custom-checkbox" id="highResCheckboxContainer">
+                <input type="checkbox" class="custom-control-input" id="highResCheckbox">
+                <label class="custom-control-label" for="highResCheckbox" class="col-sm-4 col-form-label" data-i18n="menu.highRes">Rendu haute résolution</label>
+                <a id="highResInfos" aria-label="" data-balloon-length="large" data-balloon-pos="up"><span class="ml-2 fui-question-circle"></span></a>
+              </div>
+              <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input" id="darkModeCheckbox">
+                <label class="custom-control-label" for="darkModeCheckbox" class="col-sm-4 col-form-label" data-i18n="menu.darkMode">Mode sombre</label>
+              </div>
+            </div>
+          </div>
+          <hr />
+        </div>
+        <p class="m-0"><small><span data-i18n="menu.version">Version</span> <span id="versionTxt"></span> (<span id="dateTxt"></span>) – <span data-i18n="menu.by">Par</span> <a href="http://www.eliastiksofts.com" target="_blank">Eliastik</a></small></p>
+        <p class="m-0"><small><a href="http://www.eliastiksofts.com/snakeia" target="_blank" data-i18n="menu.infos">Plus d'infos</a> – <a href="README.md" target="_blank" data-i18n="menu.readme">Fichier Lisez-moi</a> – <a href="http://www.eliastiksofts.com/snakeia/downloads" target="_blank" data-i18n="menu.source">Télécharger la source</a></small></p>
+      </div>
+      <div id="parameters">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <h1 class="h3 mb-3 font-weight-normal" data-i18n="menu.othersSettings">Paramètres</h1>
+        <div class="mt-2">
+          <div class="form-group row">
+            <div class="col justify-content-center">
+              <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input" id="enableAnimations">
+                <label class="custom-control-label" for="enableAnimations" data-i18n="menu.enableAnimations">Activer les animations</label>
+              </div>
+              <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input" id="renderBlur">
+                <label class="custom-control-label" for="renderBlur" data-i18n="menu.renderBlur">Activer le rendu de flou</label>
+              </div>
+              <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input" id="autoFullscreenMobile">
+                <label class="custom-control-label" for="autoFullscreenMobile" data-i18n="menu.autoFullscreenMobile">Activer le mode plein-écran automatique (appareils mobiles)</label>
+              </div>
+              <div id="accordionAdvancedSettings" class="mb-3 mt-3">
+                <div class="card">
+                  <div class="card-header p-0">
+                    <button class="btn btn-lg btn-link" id="collapseAdvancedSettingsBtn" data-i18n="settings.advancedSettings">Paramètres avancés…</button>
+                  </div>
+                  <div id="collapseAdvancedSettings" class="collapse" data-parent="#accordionAdvancedSettings">
+                    <div class="card-body">
+                      <div class="custom-control custom-checkbox">
+                        <input type="checkbox" class="custom-control-input" id="enableMultithreading">
+                        <label class="custom-control-label" for="enableMultithreading" data-i18n="menu.enableMultithreading">Activer le multi-threading</label> <a id="multithreadingInfos" aria-label="" data-balloon-length="large" data-balloon-pos="down"><span class="ml-2 fui-question-circle"></span></a> <a id="multithreadingNotAvailable" class="settingNotAvailable" aria-label="" data-balloon-length="large" data-balloon-pos="down"><span class="ml-2 fui-cross-circle text-danger"></span></a>
+                      </div>
+                      <div class="custom-control custom-checkbox" style="display: none;">
+                        <input type="checkbox" class="custom-control-input" id="onlineEnableClientSidePredictions">
+                        <label class="custom-control-label" for="onlineEnableClientSidePredictions" data-i18n="menu.onlineEnableClientSidePredictions">Activer les prédictions côté client pour le jeu en ligne</label> <a id="onlineEnableClientSidePredictionsInfos" aria-label="" data-balloon-length="large" data-balloon-pos="down"><span class="ml-2 fui-question-circle"></span></a>
+                      </div>
+                      <div class="custom-control custom-checkbox">
+                        <input type="checkbox" class="custom-control-input" id="showDebugInfo">
+                        <label class="custom-control-label" for="showDebugInfo" data-i18n="menu.showDebugInfo">Activer le mode de débogage</label>
+                      </div>
+                      <div class="custom-control custom-checkbox">
+                        <input type="checkbox" class="custom-control-input" id="textOutput">
+                        <label class="custom-control-label" for="textOutput" data-i18n="menu.textOutput">Activer le rendu en mode texte</label>
+                      </div>
+                      <div class="form-group row">
+                        <label class="col-sm-4 col-form-label" for="maxFPS" data-i18n="menu.maxFPS">Images par secondes maximum :</label>
+                        <div class="col-sm-8">
+                          <input type="number" class="form-control" id="maxFPS" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="row mt-2">
+            <div class="col text-center">
+              <button class="btn btn-lg btn-default" id="resetParameters"><span class="fui-trash mr-2"></span> <span data-i18n="settings.reset">Réinitialiser</span></button>
+              <button class="btn btn-lg btn-danger" id="backToMenuParameters"><span class="fui-cross mr-2"></span> <span data-i18n="settings.backToMenu">Retour au menu</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="settings">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <h1 class="h3 mb-3 font-weight-normal" data-i18n="settings.title">Paramètres de la partie :</h1>
+        <form id="formSettings">
+          <fieldset class="form-group" id="gridSettings">
+            <div class="form-group row">
+              <label for="heightGrid" class="col-sm-4 col-form-label" data-i18n="settings.gridSize">Taille de la grille :</label>
+              <div class="col-sm-8">
+                <div class="form-row">
+                  <div class="col-sm-5 col-5">
+                    <input type="number" id="heightGrid" class="form-control" min="5" max="100" placeholder="Hauteur" value="20">
+                    <div class="invalid-feedback" id="invalidHeight">
+                      Cette valeur doit être comprise entre 5 et 100
+                    </div>
+                  </div>
+                  <div class="col-sm-2 col-2">
+                    ×
+                  </div>
+                  <div class="col-sm-5 col-5">
+                    <input type="number" id="widthGrid" class="form-control" min="5" max="100" placeholder="Largeur" value="20">
+                    <div class="invalid-feedback" id="invalidWidth">
+                      Cette valeur doit être comprise entre 5 et 100
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset class="form-group" id="gameSettings">
+            <div class="form-group row">
+              <label for="gameSpeed" class="col-sm-4 col-form-label" data-i18n="settings.speed">Vitesse du jeu :</label>
+              <div class="col-sm-8">
+                <select class="custom-select" id="gameSpeed">
+                  <option value="1" data-i18n="settings.speedSelect.1">1 – La plus rapide</option>
+                  <option value="3" data-i18n="settings.speedSelect.3">3 – Rapide</option>
+                  <option value="5" data-i18n="settings.speedSelect.5">5 – Moyenne</option>
+                  <option value="8" data-i18n="settings.speedSelect.8" selected>8 – Normale</option>
+                  <option value="10" data-i18n="settings.speedSelect.10">10 – Assez lente</option>
+                  <option value="15" data-i18n="settings.speedSelect.15">15 – Lente</option>
+                  <option value="20" data-i18n="settings.speedSelect.20">20 – Très lente</option>
+                  <option value="25" data-i18n="settings.speedSelect.25">25 – Extrêmement lente</option>
+                  <option value="custom" data-i18n="settings.speedSelect.custom">Vitesse personnalisée…</option>
+                </select>
+                <div class="invalid-feedback" id="invalidSpeed"></div>
+                <div class="custom-control custom-checkbox" id="progressiveSpeedDiv">
+                  <input type="checkbox" class="custom-control-input" id="progressiveSpeed">
+                  <label class="custom-control-label" for="progressiveSpeed" data-i18n="settings.progressiveSpeed">Augmenter la vitesse progressivement</label>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset class="form-group" id="customSpeedSettings">
+            <div class="form-group row">
+              <label for="customSpeed" class="col-sm-4 col-form-label" data-i18n="settings.customSpeed">Vitesse personnalisée :</label>
+              <div class="col-sm-8">
+                <input type="number" id="customSpeed" placeholder="Entrez la vitesse…" class="form-control" min="1" value="8">
+                <div class="invalid-feedback" id="invalidCustomSpeed"></div>
+                <small id="customSpeedHelp" class="form-text text-muted" data-i18n="settings.customSpeedHelp">Plus le nombre est élevé, plus la vitesse du jeu est lente, et inversement</small>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset class="form-group" id="optionsGridSettings">
+            <div class="form-group row">
+              <label class="col-sm-4 col-form-label" data-i18n="settings.options">Autres options :</label>
+              <div class="col-sm-8">
+                <div class="form-row">
+                  <div class="custom-control custom-checkbox">
+                    <input type="checkbox" class="custom-control-input" id="borderWalls">
+                    <label class="custom-control-label" for="borderWalls" data-i18n="settings.borderWalls">Entourer la grille de murs</label>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="custom-control custom-checkbox">
+                    <input type="checkbox" class="custom-control-input" id="generateWalls">
+                    <label class="custom-control-label" for="generateWalls" data-i18n="settings.generateWalls">Générer des murs à des positions aléatoires</label>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="custom-control custom-checkbox" id="mazeGridDiv">
+                    <input type="checkbox" class="custom-control-input" id="mazeGrid">
+                    <label class="custom-control-label" for="mazeGrid" data-i18n="settings.mazeGrid">Générer un labyrinthe</label>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="custom-control custom-checkbox" id="sameGridDiv">
+                    <input type="checkbox" class="custom-control-input" id="sameGrid" checked>
+                    <label class="custom-control-label" for="sameGrid" data-i18n="settings.sameGrid">Partie sur la même grille</label>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="custom-control custom-checkbox" id="privateGameDiv">
+                    <input type="checkbox" class="custom-control-input" id="privateGame">
+                    <label class="custom-control-label" for="privateGame" data-i18n="settings.privateGame">Garder la partie privée</label>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="custom-control custom-checkbox" id="enableAIDiv">
+                    <input type="checkbox" class="custom-control-input" id="enableAI">
+                    <label class="custom-control-label" for="enableAI" data-i18n="settings.enableAI">Activer les IA</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset class="form-group" id="playerSettings">
+            <div class="form-group row">
+              <label class="col-sm-4 col-form-label" data-i18n="settings.playerSettings">Options du joueur :</label>
+              <div class="col-sm-8">
+                <div class="form-row">
+                  <div class="custom-control custom-checkbox">
+                    <input type="checkbox" class="custom-control-input" id="aiAssistant">
+                    <label class="custom-control-label" for="aiAssistant" data-i18n="settings.aiAssistant">Activer l'assistant IA</label> <a id="aiAssistantInfos" aria-label="" data-balloon-length="large" data-balloon-pos="down"><span class="ml-2 fui-question-circle"></span></a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset class="form-group" id="iaSettings">
+            <div class="form-group row">
+              <label for="aiLevel" class="col-sm-4 col-form-label" data-i18n="settings.aiLevel">Niveau de l'IA :</label>
+              <div class="col-sm-8">
+                <div class="col d-flex p-0">
+                  <select class="custom-select" id="aiLevel">
+                    <option value="random" data-i18n="settings.aiLevelSelect.random">Au hasard</option>
+                    <option value="low" data-i18n="settings.aiLevelSelect.low">Faible</option>
+                    <option value="normal" data-i18n="settings.aiLevelSelect.normal" selected>Normal</option>
+                    <option value="high" data-i18n="settings.aiLevelSelect.high">Élevé</option>
+                    <option value="ultra" data-i18n="settings.aiLevelSelect.ultra">Ultra</option>
+                  </select>
+                  <button class="btn btn-sm btn-primary ml-2" type="button" id="modalSelectAIUltraModelButton" style="display: none;"><span class="fui-gear"></span></button>
+                  <button class="btn btn-sm btn-secondary ml-2" type="button" data-toggle="modal" data-target="#modalAIInformations"><span class="fui-question-circle"></span></button>
+                  <div class="invalid-feedback" id="invalidaiLevel" data-i18n="settings.invalidaiLevel">
+                    Cette valeur est invalide
+                  </div>
+                </div>
+                <div class="custom-control custom-checkbox" id="autoRetrySettings">
+                  <input type="checkbox" class="custom-control-input" id="autoRetry">
+                  <label class="custom-control-label" for="autoRetry" data-i18n="settings.autoRetry">Faire que l'IA recommence auto sa partie après un Game Over</label>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset class="form-group" id="numberIASettings">
+            <div class="form-group row">
+              <label for="numberIA" class="col-sm-4 col-form-label" data-i18n="settings.numberIA">Nombre d'IA :</label>
+              <div class="col-sm-8">
+                <input type="number" id="numberIA" class="form-control" min="2" max="100" placeholder="Entrez le nombre…" value="20">
+                <div class="invalid-feedback" id="invalidIANumber" data-i18n="settings.invalidIANumber">
+                  Cette valeur doit être comprise entre 2 et 100
+                </div>
+              </div>
+              <div class="col">
+                <div class="custom-control custom-checkbox">
+                  <input type="checkbox" class="custom-control-input" id="battleAgainstAIs">
+                  <label class="custom-control-label" for="battleAgainstAIs" data-i18n="settings.battleAgainstAIs">Jouer contre les IA</label>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset class="form-group" id="seedSettings">
+            <div id="accordion" class="mb-3">
+              <div class="card">
+                <div class="card-header p-0">
+                  <button class="btn btn-lg btn-link" id="collapseSeedSettingsBtn" data-i18n="settings.advancedSettings">Paramètres avancés…</button>
+                </div>
+                <div id="collapseSeedSettings" class="collapse" data-parent="#accordion">
+                  <div class="card-body">
+                    <div class="form-group row">
+                      <label for="seedGrid" class="col-sm-4 col-form-label" data-i18n="settings.seedGrid">Valeur aléatoire grille :</label>
+                      <div class="col-sm-8">
+                        <input type="number" id="seedGrid" class="form-control">
+                        <a id="seedGridInfos" aria-label="" data-balloon-length="large" data-balloon-pos="up"><span class="ml-2 fui-question-circle"></span></a>
+                        <div class="invalid-feedback" id="invalidSeedGrid" data-i18n="settings.invalidValue">
+                          Cette valeur est invalide
+                        </div>
+                      </div>
+                    </div>
+                    <div class="form-group row mb-0">
+                      <label for="seedGame" class="col-sm-4 col-form-label" data-i18n="settings.seedGame">Valeur aléatoire jeu :</label>
+                      <div class="col-sm-8">
+                        <input type="number" id="seedGame" class="form-control">
+                        <a id="seedGameInfos" aria-label="" data-balloon-length="large" data-balloon-pos="up"><span class="ml-2 fui-question-circle"></span></a>
+                        <div class="invalid-feedback" id="invalidSeedGame" data-i18n="settings.invalidValue">
+                          Cette valeur est invalide
+                        </div>
+                      </div>
+                    </div>
+                    <div class="form-group row mb-0">
+                      <div class="col">
+                        <button class="btn btn-default" data-i18n="settings.reset" id="resetSeeds">Réinitialiser</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset class="form-group" id="possibleFailInitGame">
+            <div class="form-group row">
+              <div class="col text-center">
+                <div class="alert alert-danger medium">
+                  <span class="fui-cross-circle mr-2"></span> <span data-i18n="settings.possibleFailInitGame">Il est possible que l'initialisation de la partie échoue avec vos paramètres car il n'y aura pas assez d'espace pour placer tous les Snake. Dans ce cas, un message « Une erreur est survenue » peut s'afficher. Essayez avec d'autres paramètres.</span>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+        </form>
+        <div class="row">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-success" id="validateSettings"><span class="fui-check mr-2"></span> <span data-i18n="settings.validate">Valider</span></button>
+            <button class="btn btn-lg btn-default" id="resetSettings"><span class="fui-trash mr-2"></span> <span data-i18n="settings.reset">Réinitialiser</span></button>
+          </div>
+        </div>
+        <div class="row mt-2">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-danger" id="backToMenu"><span class="fui-cross mr-2"></span> <span data-i18n="settings.backToMenu">Retour au menu</span></button>
+          </div>
+        </div>
+      </div>
+      <div id="serverListContainer">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <h1 class="h3 font-weight-normal" data-i18n="servers.serverList">Liste des serveurs</h1>
+        <h1 class="h6 mb-3 mt-3 font-weight-normal" data-i18n="servers.selectInfo">Sélectionnez un serveur :</h1>
+        <div id="serverList">
+          <strong id="loadingServersList" data-i18n="servers.loadingList">Chargement de la liste des serveurs… Veuillez patienter.</strong>
+          <div id="serverListGroup" class="list-group"></div>
+          <div class="list-group">
+            <a class="list-group-item list-group-item-action" id="linkCustomServer"><span class="fui-new mr-2"></span> <span data-i18n="servers.customServer"></span></a>
+          </div>
+        </div>
+        <div class="row mt-2">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-danger" id="backToMenuServerList"><span class="fui-cross mr-2"></span> <span data-i18n="settings.backToMenu">Retour au menu</span></button>
+          </div>
+        </div>
+      </div>
+      <div id="connectingToServer">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <div class="alert alert-info mt-3" role="alert" id="infoConnectingToServer">
+          <span class="fui-info-circle mr-2"></span> <span data-i18n="servers.connectingToServer">Connexion au serveur… Veuillez patienter.</span>
+        </div>
+        <div class="row mt-2">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-danger" id="cancelConnectingToServer"><span class="fui-cross mr-2"></span> <span data-i18n="servers.cancel">Annuler</span></button>
+          </div>
+        </div>
+      </div>
+      <div id="authenticationServer">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <h1 class="h3 font-weight-normal" data-i18n="servers.authenticationServer">Authentification au serveur</h1>
+        <div id="authenticationServerContainer" class="embed-responsive embed-responsive-4by3"></div>
+        <a href="#" id="linkAuthenticationServer" target="_blank" data-i18n="servers.linkAuthenticationServer">Si le formulaire ne s'affiche pas, cliquez ici</a>
+        <div class="row mt-2">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-danger" id="cancelAuthenticationToServer"><span class="fui-cross mr-2"></span> <span data-i18n="servers.cancel">Annuler</span></button>
+          </div>
+        </div>
+      </div>
+      <div id="roomsOnlineListContainer">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <h1 class="h3 font-weight-normal" data-i18n="servers.roomsListTitle">Liste des salles</h1>
+        <h1 class="h6 mb-3 mt-3 font-weight-normal" data-i18n="servers.roomsListInfos">Sélectionnez une salle :</h1>
+        <div class="row mb-2">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-success" id="createRoom"><span class="fui-plus-circle mr-2"></span> <span data-i18n="servers.createRoom">Créer une salle</span></button> <button class="btn btn-lg btn-info" id="joinPrivateRoom"><span class="fui-export mr-2"></span> <span data-i18n="servers.joinPrivateRoom">Rejoindre une salle privée</span></button>
+          </div>
+        </div>
+        <div class="row mb-2">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-secondary" id="refreshRooms"><span class="fui-search mr-2"></span> <span data-i18n="servers.refreshRooms">Actualiser</span></button>
+          </div>
+        </div>
+        <div id="roomsList" class="mt-4 mb-4">
+          <div class="alert alert-danger" role="alert" id="errorServerVersion">
+            <span class="fui-cross-circle mr-2"></span> <span id="errorServerVersionText"></span>
+          </div>
+          <div class="alert alert-danger" role="alert" id="errorRoomsList">
+            <span class="fui-cross-circle mr-2"></span> <span data-i18n="servers.errorLoadingRooms">Une erreur est survenue lors du chargement de la liste des salles. Veuillez réessayer.</span>
+          </div>
+          <div class="alert alert-danger" role="alert" id="errorRoomCreation">
+            <span class="fui-cross-circle mr-2"></span> <span data-i18n="servers.errorRoomCreation">Une erreur est survenue lors de la création de la salle. Veuillez réessayer.</span><br />
+            <span><strong data-i18n="servers.errorReason">Raison de l'erreur :</strong> <span id="errorRoomCreationReason"></span></span>
+          </div>
+          <div class="alert alert-danger" role="alert" id="errorRoomJoin">
+            <span class="fui-cross-circle mr-2"></span> <span data-i18n="servers.errorRoomJoin">Une erreur est survenue lors de la connexion à la salle. Veuillez réessayer.</span><br />
+            <span><strong data-i18n="servers.errorReason">Raison de l'erreur :</strong> <span id="errorRoomJoinReason"></span></span>
+          </div>
+          <strong id="loadingRoomsOnlineList" data-i18n="servers.loadingRooms">Chargement de la liste des salles… Veuillez patienter.</strong>
+          <div id="roomsOnlineListGroup" class="list-group"></div>
+        </div>
+        <div class="row mt-2">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-danger" id="backToServersRoomsList"><span class="fui-cross mr-2"></span> <span data-i18n="servers.backToList">Retour à la liste des serveurs</span></button>
+          </div>
+        </div>
+        <div class="row mt-2">
+          <div class="col text-center">
+            <p class="small"><strong data-i18n="servers.addressLabel">Adresse du serveur :</strong> <span id="serverAddress"></span></p>
+          </div>
+        </div>
+      </div>
+      <div id="roomsOnlineCreation">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <div class="alert alert-info mt-3" role="alert" id="infoRoomsCreate">
+          <span class="fui-info-circle mr-2"></span> <span data-i18n="servers.creatingRoom">Création de la salle… Veuillez patienter.</span>
+        </div>
+      </div>
+      <div id="roomsOnlineJoin">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <div class="alert alert-info mt-3" role="alert" id="infoJoinRoom">
+          <span class="fui-info-circle mr-2"></span> <span data-i18n="servers.joinRoom">Connexion à la salle… Veuillez patienter.</span>
+        </div>
+      </div>
+      <div id="levelContainer">
+        <img src="assets/images/logo/logo.png" width="325px" alt="Logo" class="logoLight" style="display: none;" />
+        <img src="assets/images/logo/logo-dark.png" width="325px" alt="Logo" class="logoDark" />
+        <h1 class="h3 font-weight-normal" id="titleLevelList"></h1>
+        <div id="levelsAILevel">
+          <hr />
+          <div class="form-group row">
+            <label for="levelsAILevelSelect" class="col-sm-4 col-form-label" data-i18n="settings.aiLevel">Niveau de l'IA :</label>
+            <div class="col-sm-8">
+              <div class="col d-flex p-0">
+                <select class="custom-select" id="levelsAILevelSelect">
+                  <option value="random" data-i18n="settings.aiLevelSelect.random">Au hasard</option>
+                  <option value="low" data-i18n="settings.aiLevelSelect.low">Faible</option>
+                  <option value="normal" data-i18n="settings.aiLevelSelect.normal" selected>Normal</option>
+                  <option value="high" data-i18n="settings.aiLevelSelect.high">Élevé</option>
+                  <option value="ultra" data-i18n="settings.aiLevelSelect.ultra">Ultra</option>
+                </select>
+                <button class="btn btn-sm btn-primary ml-2" type="button" id="modalLevelSelectAIUltraModelButton" style="display: none;"><span class="fui-gear"></span></button>
+                <button class="btn btn-sm btn-secondary ml-2" type="button" data-toggle="modal" data-target="#modalAIInformations"><span class="fui-question-circle"></span></button>
+                <div class="invalid-feedback" id="levelInvalidaiLevel" data-i18n="settings.invalidaiLevel">
+                  Cette valeur est invalide
+                </div>
+              </div>
+            </div>
+          </div>
+          <hr />
+        </div>
+        <h1 class="h5 mb-3 mt-3 font-weight-normal" data-i18n="levels.default">Niveaux par défaut</h1>
+        <div class="alert alert-danger mb-3 medium" id="localstorageDisabled">
+          <span class="fui-cross-circle mr-2"></span> <span data-i18n="levels.localstorageDisabled">Les cookies sont désactivés sur votre navigateur. Vous perdrez votre progression au prochain rechargement de la page. Activez-les puis rechargez la page pour éviter cela.</span>
+        </div>
+        <div id="levelListDefault"></div>
+        <div id="levelDownload">
+          <hr />
+          <h1 class="h5 mb-3 mt-3 font-weight-normal" data-i18n="levels.downloaded">Niveaux téléchargés</h1>
+          <div id="levelListDownloadPlayer"></div>
+          <div id="levelListDownloadAI"></div>
+          <div id="levelDownloading"></div>
+          <div id="btnDeblockDiv"></div>
+        </div>
+        <div id="levelBonusShop">
+          <hr />
+          <h1 class="h5 mb-3 mt-3 font-weight-normal" data-i18n="levels.levelBonusShop">Boutique des bonus</h1>
+          <div id="accordionShop" class="mb-3">
+            <div class="card">
+              <div class="card-header p-0">
+                <button class="btn btn-link btn-lg" id="collapseLevelBonusShopLink" data-i18n="levels.displayBonusShop"></button>
+              </div>
+              <div id="collapseLevelBonusShop" class="collapse" data-parent="#accordionShop">
+                <div id="fruitNumber"><img src="assets/images/skin/flat/fruit.png" width="24" height="24" class="align-text-bottom"></img> × <span id="fruitNumberCount">0</span></div>
+                <div id="bonusList"></div>
+              </div>
+            </div>
+          </div>
+          <hr />
+        </div>
+        <div class="row mt-2">
+          <div class="col text-center">
+            <button class="btn btn-lg btn-danger" id="backToMenuLevelList"><span class="fui-cross mr-2"></span> <span data-i18n="settings.backToMenu">Retour au menu</span></button>
+          </div>
+        </div>
+      </div>
+      <div id="gameContainer">
+        <div class="row">
+          <div class="col">
+            <img src="assets/images/logo/logo.png" width="150px" alt="Logo" class="logoLight" style="display: none;" />
+            <img src="assets/images/logo/logo-dark.png" width="150px" alt="Logo" class="logoDark" />
+            <h1 id="titleGame" class="h3 mb-1 mt-3 font-weight-normal"></h1>
+            <p class="small text-info mb-0" id="resultLevels"></p>
+            <button class="btn btn-lg btn-inverse mt-2 mb-2" id="backToMenuGame"><span class="fui-cross mr-2"></span> <span data-i18n="game.backToMenu">Retour au menu</span></button>
+            <p id="gameOrder" class="h6 font-weight-normal text-info"></p>
+            <p id="gameStatus" class="h6 font-weight-normal text-primary"></p>
+            <p id="gameStatusError" class="h6 mb-1 font-weight-normal text-danger"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal" tabindex="-1" id="modalAIInformations">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" data-i18n="modalAIInformations.title">Information sur les niveaux des IAs</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p data-i18n="modalAIInformations.lead">
+              Voici une description des différents niveaux des IAs. Elle vous permet de mieux comprendre les différentes stratégies adoptées par l’IA ainsi que son fonctionnement technique interne :
+            </p>
+            <h6 data-i18n="modalAIInformations.random">Au hasard</h6>
+            <p data-i18n="modalAIInformations.randomDescription">
+              Cette IA joue totalement au hasard. Elle effectue des mouvements aléatoires mais tente d'éviter les obstacles lorsque c'est possible. Autant dire qu'elle n'est pas très forte…
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.weakPoint">Point faible :</strong>
+              <span data-i18n="modalAIInformations.randomWeakPoint">Très imprévisible mais facile à piéger : elle se bloque rapidement sans réfléchir.</span>
+            </p>
+            <h6 data-i18n="modalAIInformations.low">Faible</h6>
+            <p data-i18n="modalAIInformations.lowDescription">
+              Cette IA est assez basique. Elle s'aligne au niveau de la pomme, en se déplaçant d'abord horizontalement pour s’aligner, puis verticalement pour l’atteindre. Si elle rencontre un obstacle, elle essaye de le contourner tant bien que mal. Si elle se retrouve bloquée, elle tente de survivre en attendant d'être débloquée, en zigzaguant. Si une pomme en or apparaît, l’IA la privilégiera si elle est plus proche que la pomme normale.
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.technical">Technique :</strong>
+              <span data-i18n="modalAIInformations.lowTechnical">Algorithme heuristique basique</span>
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.weakPoint">Point faible :</strong>
+              <span data-i18n="modalAIInformations.lowWeakPoint">Se laisse facilement piéger dans des couloirs ou coins ; ne planifie pas plusieurs étapes à l’avance.</span>
+            </p>
+            <h6 data-i18n="modalAIInformations.normal">Normal</h6>
+            <p data-i18n="modalAIInformations.normalDescription">
+              Cette IA calcule le chemin le plus rapide pour atteindre la pomme, tout en évitant les obstacles. Elle ne sait pas utiliser les bords de la grille pour passer de l’autre côté. Si elle se retrouve bloquée, elle ne réagit pas et finit par percuter l’obstacle devant elle. Si une pomme en or apparaît, l’IA la privilégiera si elle est plus proche que la pomme normale.
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.technical">Technique :</strong>
+              <span data-i18n="modalAIInformations.normalTechnical">Algorithme de recherche de chemin A*</span>
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.weakPoint">Point faible :</strong>
+              <span data-i18n="modalAIInformations.normalWeakPoint">Très efficace en terrain dégagé, mais incapable de réagir si on lui bloque l’accès à la pomme.</span>
+            </p>
+            <h6 data-i18n="modalAIInformations.high">Élevé</h6>
+            <p data-i18n="modalAIInformations.highDescription">
+              Cette IA calcule le chemin le plus rapide pour atteindre la pomme, tout en évitant les obstacles, comme l’IA de niveau Normal, mais avec des capacités supplémentaires. Elle sait utiliser les bords de la grille pour passer de l’autre côté. Si elle se retrouve bloquée, elle utilise l'heuristique de l'IA de niveau Faible pour essayer de survivre en attendant d'être débloquée. Si une pomme en or apparaît, l’IA la privilégiera si elle est plus proche que la pomme normale.
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.technical">Technique :</strong>
+              <span data-i18n="modalAIInformations.highTechnical">Algorithme de recherche de chemin A*, algorithme heuristique en complément</span>
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.weakPoint">Point faible :</strong>
+              <span data-i18n="modalAIInformations.highWeakPoint">Difficile à piéger, mais peut paniquer ou mal s’adapter si le joueur crée des situations ambiguës ou dynamiques.</span>
+            </p>
+
+            <h6 data-i18n="modalAIInformations.ultra">Ultra</h6>
+            <p data-i18n="modalAIInformations.ultraDescription">
+              Cette IA est basée sur un réseau de neurones artificiels entraîné sur un nombre important de parties. Sa stratégie et son comportement dépendent de l'entraînement, mais contrairement aux IA pré-programmées, elle est généralement capable de repérer en avance les pièges et de les éviter.
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.technical">Technique :</strong>
+              <span data-i18n="modalAIInformations.ultraTechnical">Algorithme d'apprentissage par renforcement Deep-Q-Learning, réseau de neurones artificiels (basé sur un réseau convolutif en entrée), autres améliorations de l'algorithme (Double Deep-Q-Learning, Dueling Layers, Noisy Networks for Exploration, Prioritized Experience Replay).</span>
+            </p>
+            <p>
+              <strong data-i18n="modalAIInformations.weakPoint">Point faible :</strong>
+              <span data-i18n="modalAIInformations.ultraWeakPoint">Dépend de l'entraînement, mais peut avoir appris des comportements sous-optimaux ou mauvais.</span>
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal" data-i18n="modalAIInformations.close">Fermer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal" tabindex="-1" id="modalSelectAIUltraModel">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" data-i18n="modalSelectAIUltraModel.title">Paramètres de l'IA Ultra</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p data-i18n="modalSelectAIUltraModel.description">Vous pouvez paramétrer ci-dessous l'IA Ultra, notamment en sélectionnant le modèle qui sera chargé.</p>
+            <form id="formSettingsAIUltraModel">
+              <fieldset class="form-group" id="aiModelSettings">
+                <div class="form-group row mb-0">
+                  <label for="aiModelList" class="col-sm-4 col-form-label" data-i18n="modalSelectAIUltraModel.model">Modèle de l'IA :</label>
+                  <div class="col-sm-8">
+                    <select class="custom-select" id="aiModelList"></select>
+                  </div>
+                  <div class="col">
+                    <div class="alert alert-danger mt-3" role="alert" id="aiModelNotCompatible">
+                      <span class="fui-cross-circle mr-2"></span> <span data-i18n="modalSelectAIUltraModel.notCompatible">Ce modèle n'est pas compatible avec votre version du jeu</span></span>
+                    </div>
+                    <div class="alert alert-warning mt-3" role="alert" id="aiModelDeprecated">
+                      <span class="fui-alert-circle mr-2"></span> <span data-i18n="modalSelectAIUltraModel.deprecated">Ce modèle est déprécié</span></span>
+                    </div>
+                    <div class="alert alert-info mt-3" role="alert" id="aiModelDefault">
+                      <span class="fui-info-circle mr-2"></span> <span data-i18n="modalSelectAIUltraModel.default">Ce modèle est le modèle par défaut</span></span>
+                    </div>
+                  </div>
+                </div>
+                <button id="aiModelDetailsCollapseButton" class="btn btn-link px-0" type="button" data-toggle="collapse" data-target="#aiModelDetailsCollapse" aria-expanded="false" aria-controls="aiModelDetailsCollapse">
+                  <span data-i18n="modalSelectAIUltraModel.toggleDetails">Afficher les détails du modèle</span>
+                </button>
+                <div class="collapse" id="aiModelDetailsCollapse">
+                  <div class="card card-body">
+                    <div><strong data-i18n="modalSelectAIUltraModel.name">Nom :</strong> <span id="aiModelName">—</span></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.descriptionLabel">Description :</strong> <span id="aiModelDescription">—</span></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.version">Version :</strong> <span id="aiModelVersion">—</span></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.gameVersion">Version du jeu requise :</strong> <span id="aiModelGameVersion">—</span></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.size">Taille :</strong> <span id="aiModelSize">—</span> <span data-i18n="modalSelectAIUltraModel.mb">Mo</span></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.date">Date de création :</strong> <span id="aiModelDate">—</span></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.author">Auteur :</strong> <a href="#" target="_blank" id="aiModelAuthorWebsite">—</a></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.source">URL de base du modèle :</strong> <a href="#" target="_blank" id="aiModelURL">—</a></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.modelID">Identifiant du modèle :</strong> <span id="aiModelId">—</span></div>
+                    <div><strong data-i18n="modalSelectAIUltraModel.technical">Technique :</strong> <span id="aiModelTechnical">—</span></div>
+                  </div>
+                </div>
+              </fieldset>
+              <fieldset class="form-group" id="aiModelSettingsCustomPath" style="display: none">
+                <div class="form-group row mt-4">
+                  <label for="aiModelPath" class="col-sm-4 col-form-label" data-i18n="modalSelectAIUltraModel.modelPath">URL du modèle personnalisée :</label>
+                  <div class="col-sm-8">
+                    <input type="url" class="form-control" id="aiModelPath"></select>
+                  </div>
+                </div>
+              </fieldset>
+            </form>
+          </div>
+          <div class="col">
+            <div class="alert alert-info" role="alert" id="loadingModelList">
+              <span class="fui-info-circle mr-2"></span> <span data-i18n="modalSelectAIUltraModel.loadingModelList">Chargement de la liste des modèles en cours… Veuillez patienter.</span>
+            </div>
+            <div class="alert alert-danger" role="alert" id="errorLoadingModelList">
+              <span class="fui-cross-circle mr-2"></span> <span data-i18n="modalSelectAIUltraModel.errorLoading">Une erreur est survenue lors du chargement de la liste des modèles.</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" id="validateAIUltraModel" data-i18n="modalSelectAIUltraModel.validate">Valider</button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal" data-i18n="modalSelectAIUltraModel.close">Fermer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal" tabindex="-1" id="modalAdvanced3DGraphicsSettings">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" data-i18n="modal3DQualitySettings.title">Paramètres de qualité 3D personnalisée</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p data-i18n="modal3DQualitySettings.description">Vous pouvez paramétrer ci-dessous les paramètres de qualité 3D.</p>
+            <div id="formSettingsAdvanced3DSettings"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" id="validateAdvanced3DSettings" data-i18n="modal3DQualitySettings.validate">Valider</button>
+            <button type="button" class="btn btn-danger" id="resetAdvanced3DSettings" data-i18n="modal3DQualitySettings.reset">Réinitialiser</button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal" data-i18n="modal3DQualitySettings.close">Fermer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="assets/js/bootstrap-native-v4.min.js"></script>
+    <script type="text/javascript" src="dist/SnakeIA.js"></script>
+  </body>
+</html>
