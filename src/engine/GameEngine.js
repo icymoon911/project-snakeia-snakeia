@@ -24,6 +24,13 @@ import Snake from "./Snake.js";
 import SnakeAIUltraModelLoader from "./ai/SnakeAIUltraModelLoader.js";
 import seedrandom from "seedrandom";
 
+// Canonical list of engine event names – shared with GameController for
+// automatic event forwarding.
+export const ENGINE_EVENT_NAMES = [
+  "onStart", "onPause", "onContinue", "onReset", "onStop",
+  "onExit", "onKill", "onScoreIncreased", "onUpdate", "onUpdateCounter"
+];
+
 export default class GameEngine {
   constructor(grid, snake, speed, enablePause, enableRetry, progressiveSpeed, aiStuckLimit, disableStuckAIDetection, aiUltraModelSettings) {
     // Game settings
@@ -63,16 +70,7 @@ export default class GameEngine {
     this.intervalPlay;
     // Events
     this.reactor = new Reactor();
-    this.reactor.registerEvent("onStart");
-    this.reactor.registerEvent("onPause");
-    this.reactor.registerEvent("onContinue");
-    this.reactor.registerEvent("onReset");
-    this.reactor.registerEvent("onStop");
-    this.reactor.registerEvent("onExit");
-    this.reactor.registerEvent("onKill");
-    this.reactor.registerEvent("onScoreIncreased");
-    this.reactor.registerEvent("onUpdate");
-    this.reactor.registerEvent("onUpdateCounter");
+    this.reactor.registerEvents(ENGINE_EVENT_NAMES);
   }
 
   async init() {
@@ -310,49 +308,15 @@ export default class GameEngine {
   }
 
   getNBPlayer(type) {
-    let numPlayer = 0;
-
-    if(this.snakes != null) {
-      for(const snake of this.snakes) {
-        if(snake.player == type) {
-          numPlayer++;
-        }
-      }
-    }
-
-    return numPlayer;
+    return GameUtils.getNBPlayer(this.snakes, type);
   }
 
   getPlayer(num, type) {
-    let numPlayer = 0;
-
-    if(this.snakes != null) {
-      for(const snake of this.snakes) {
-        if(snake.player == type) {
-          numPlayer++;
-        }
-
-        if(numPlayer == num) {
-          return snake;
-        }
-      }
-    }
-
-    return null;
+    return GameUtils.getPlayer(this.snakes, num, type);
   }
 
   getNBPlayerAlive() {
-    let numPlayer = 0;
-
-    if(this.snakes != null) {
-      for(const snake of this.snakes) {
-        if(!snake.gameOver) {
-          numPlayer++;
-        }
-      }
-    }
-
-    return numPlayer;
+    return GameUtils.getNBPlayerAlive(this.snakes);
   }
 
   tick() {

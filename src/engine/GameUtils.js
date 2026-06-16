@@ -24,25 +24,25 @@ export default {
   },
   addHue: function(hue, add) {
     const res = hue + add;
-  
+
     if(res > 360) {
       return (res - 360);
     } else if(res < 0) {
       return (360 + res);
     }
-  
+
     return res;
   },
   shuffle: function(a, rng) {
     let j, x;
-    
+
     for(let i = a.length - 1; i > 0; i--) {
       j = Math.floor((rng ? rng() : Math.random()) * (i + 1));
       x = a[i];
       a[i] = a[j];
       a[j] = x;
     }
-    
+
     return a;
   },
   millisecondsFormat: function(milliseconds) {
@@ -67,7 +67,7 @@ export default {
     case GameConstants.CaseType.CROSSED:
       return "";
     }
-    
+
     return "unknown.png";
   },
   fastArgMax(arr) {
@@ -82,5 +82,66 @@ export default {
     }
 
     return { maxValue, maxIndex };
+  },
+  /**
+   * Count the number of players of a given type in a snakes array.
+   * @param {Array|null} snakes
+   * @param {string} type - PlayerType constant
+   * @returns {number}
+   */
+  getNBPlayer(snakes, type) {
+    let numPlayer = 0;
+
+    if(snakes != null) {
+      for(let i = 0; i < snakes.length; i++) {
+        if(snakes[i] && snakes[i].player == type) {
+          numPlayer++;
+        }
+      }
+    }
+
+    return numPlayer;
+  },
+  /**
+   * Find the nth player of a given type in a snakes array.
+   * @param {Array|null} snakes
+   * @param {number} num - 1-based index among players of the given type
+   * @param {string} type - PlayerType constant
+   * @returns {object|null}
+   */
+  getPlayer(snakes, num, type) {
+    let numPlayer = 0;
+
+    if(snakes != null) {
+      for(let i = 0; i < snakes.length; i++) {
+        if(snakes[i] && snakes[i].player == type) {
+          numPlayer++;
+        }
+
+        if(numPlayer == num) {
+          return snakes[i];
+        }
+      }
+    }
+
+    return null;
+  },
+  /**
+   * Count the number of alive players in a snakes array.
+   * @param {Array|null} snakes
+   * @returns {number}
+   */
+  getNBPlayerAlive(snakes) {
+    let numPlayer = 0;
+
+    if(snakes != null) {
+      for(let i = 0; i < snakes.length; i++) {
+        if(snakes[i] && !snakes[i].gameOver) {
+          numPlayer++;
+        }
+      }
+    }
+
+    return numPlayer;
   }
 };

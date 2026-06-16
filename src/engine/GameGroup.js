@@ -22,13 +22,10 @@ export default class GameGroup {
   constructor(games) {
     this.games = games == undefined ? [] : games;
     this.reactor = new Reactor();
-    this.reactor.registerEvent("onStart");
-    this.reactor.registerEvent("onPause");
-    this.reactor.registerEvent("onContinue");
-    this.reactor.registerEvent("onStop");
-    this.reactor.registerEvent("onReset");
-    this.reactor.registerEvent("onExit");
-    this.reactor.registerEvent("onScoreIncreased");
+    this.reactor.registerEvents([
+      "onStart", "onPause", "onContinue", "onStop",
+      "onReset", "onExit", "onScoreIncreased"
+    ]);
     
     this.init();
   }

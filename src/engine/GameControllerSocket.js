@@ -25,6 +25,22 @@ import GameConstants from "./Constants.js";
 import { NotificationMessage } from "jsgametools";
 import GameEngine from "./GameEngine.js";
 
+// Declarative mapping: socket event → controller event name, whether to sync
+// the engine (client-side predictions), and optional side-effect hooks.
+const SOCKET_EVENT_MAP = {
+  init:           { controllerEvent: null,           syncEngine: true  },
+  reset:          { controllerEvent: "onReset",      syncEngine: true  },
+  start:          { controllerEvent: "onStart",      syncEngine: false },
+  pause:          { controllerEvent: "onPause",      syncEngine: false },
+  continue:       { controllerEvent: "onContinue",   syncEngine: false },
+  stop:           { controllerEvent: "onStop",       syncEngine: true  },
+  exit:           { controllerEvent: "onExit",       syncEngine: false, after: "exit"  },
+  kill:           { controllerEvent: "onKill",       syncEngine: false, after: "kill"  },
+  scoreIncreased: { controllerEvent: "onScoreIncreased", syncEngine: false },
+  update:         { controllerEvent: "onUpdate",     syncEngine: true  },
+  updateCounter:  { controllerEvent: "onUpdateCounter", syncEngine: false }
+};
+
 export default class GameControllerSocket extends GameController {
   constructor(socket, ui, enableClientSidePredictions) {
     super(new GameEngine(), ui);
@@ -33,137 +49,100 @@ export default class GameControllerSocket extends GameController {
     this.pingLatency = -1;
   }
 
-  parseData(key, data, updateEngine) {
-    if(data) {
+  parseData(key, data, syncEngine) {
+    if (data) {
       let grid = this.grid;
 
-      if(Object.prototype.hasOwnProperty.call(data, "grid") && data["grid"] != null && data["grid"]["grid"] != null) {
+      if (Object.prototype.hasOwnProperty.call(data, "grid") && data["grid"] != null && data["grid"]["grid"] != null) {
         grid = Object.assign(new Grid(), data["grid"]);
         data["grid"] = grid;
       }
 
-      if(Object.prototype.hasOwnProperty.call(data, "snakes") && data["snakes"] != null) {
-        for(let i = 0; i < data["snakes"].length; i++) {
+      if (Object.prototype.hasOwnProperty.call(data, "snakes") && data["snakes"] != null) {
+        for (let i = 0; i < data["snakes"].length; i++) {
           data["snakes"][i].grid = grid;
           data["snakes"][i] = Object.assign(new Snake(), data["snakes"][i]);
 
-          for(let j = 0; j < data["snakes"][i].queue.length; j++) {
+          for (let j = 0; j < data["snakes"][i].queue.length; j++) {
             data["snakes"][i].queue[j] = Object.assign(new Position(), data["snakes"][i].queue[j]);
           }
         }
       }
-      
-      this.update(key, data, updateEngine);
+
+      this.update(key, data, syncEngine);
     }
   }
 
   async init() {
-    this.socket.on("init", data => {
-      this.parseData("init", data, this.enableClientSidePredictions);
+    // Generic socket event handling – one listener per event, all following the
+    // same pattern: parse data → optional side-effect → dispatch controller event.
+    for (const [socketEvent, config] of Object.entries(SOCKET_EVENT_MAP)) {
+      this.socket.on(socketEvent, data => {
+        const shouldSync = config.syncEngine && this.enableClientSidePredictions;
+        this.parseData(socketEvent, data, shouldSync);
 
-      if(this.enableClientSidePredictions && this.gameEngine) {
-        if(data && data["currentPlayer"])
-          this.gameEngine.currentPlayer = data["currentPlayer"];
-        if(data && data["countBeforePlay"] < 0)
-          this.gameEngine.forceStart();
-      }
-    });
-
-    this.socket.on("reset", data => {
-      this.parseData("reset", data, this.enableClientSidePredictions);
-      this.reactor.dispatchEvent("onReset");
-    });
-
-    this.socket.on("start", data => {
-      this.parseData("start", data);
-      this.reactor.dispatchEvent("onStart");
-    });
-
-    this.socket.on("pause", data => {
-      this.parseData("pause", data);
-      this.reactor.dispatchEvent("onPause");
-    });
-
-    this.socket.on("continue", data => {
-      this.parseData("continue", data);
-      this.reactor.dispatchEvent("onContinue");
-    });
-
-    this.socket.on("stop", data => {
-      this.parseData("stop", data, this.enableClientSidePredictions);
-      this.reactor.dispatchEvent("onStop");
-    });
-
-    this.socket.on("exit", data => {
-      this.parseData("exit", data);
-      this.gameEngine.exit();
-      this.reactor.dispatchEvent("onExit");
-    });
-
-    this.socket.on("kill", data => {
-      this.parseData("kill", data);
-      this.gameEngine.kill();
-      this.reactor.dispatchEvent("onKill");
-    });
-
-    this.socket.on("scoreIncreased", data => {
-      this.parseData("scoreIncreased", data);
-      this.reactor.dispatchEvent("onScoreIncreased");
-    });
-
-    this.socket.on("update", data => {
-      this.parseData("update", data, this.enableClientSidePredictions);
-
-      if(!this.gameEngine.clientSidePredictionsMode) {
-        this.gameUI.offsetFrame = 0;
-      }
-
-      this.reactor.dispatchEvent("onUpdate");
-    });
-
-    this.socket.on("updateCounter", data => {
-      this.parseData("updateCounter", data);
-
-      if(data && data.countBeforePlay < 0) {
-        if(this.enableClientSidePredictions) {
-          this.gameEngine.forceStart();
+        // Event-specific side effects
+        if (socketEvent === "init") {
+          if (this.enableClientSidePredictions && this.gameEngine) {
+            if (data && data["currentPlayer"])
+              this.gameEngine.currentPlayer = data["currentPlayer"];
+            if (data && data["countBeforePlay"] < 0)
+              this.gameEngine.forceStart();
+          }
         }
-      }
 
-      this.reactor.dispatchEvent("onUpdateCounter");
-    });
+        if (socketEvent === "update") {
+          if (!this.gameEngine.clientSidePredictionsMode) {
+            this.gameUI.offsetFrame = 0;
+          }
+        }
+
+        if (socketEvent === "updateCounter") {
+          if (data && data.countBeforePlay < 0) {
+            if (this.enableClientSidePredictions) {
+              this.gameEngine.forceStart();
+            }
+          }
+        }
+
+        // Execute engine action if configured (exit, kill)
+        if (config.after === "exit") {
+          this.gameEngine.exit();
+        } else if (config.after === "kill") {
+          this.gameEngine.kill();
+        }
+
+        // Dispatch on controller reactor
+        if (config.controllerEvent) {
+          this.reactor.dispatchEvent(config.controllerEvent);
+        }
+      });
+    }
 
     this.socket.on("notification", (text, duration, textColor, backgroundColor, foreground) => {
       this.gameUI.setNotification(new NotificationMessage(text, textColor, backgroundColor, duration, null, null, null, foreground));
     });
 
-    this.socket.once("error", () => {
+    const connectionErrorHandler = () => {
       this.gameUI.setNotification(new NotificationMessage(i18next.t("engine.servers.errorConnection"), null, GameConstants.Setting.ERROR_NOTIF_COLOR, null, null, null, null, true));
-    });
+    };
 
-    this.socket.once("connect_error", () => {
-      this.gameUI.setNotification(new NotificationMessage(i18next.t("engine.servers.errorConnection"), null, GameConstants.Setting.ERROR_NOTIF_COLOR, null, null, null, null, true));
-    });
+    this.socket.once("error", connectionErrorHandler);
+    this.socket.once("connect_error", connectionErrorHandler);
+    this.socket.once("connect_timeout", connectionErrorHandler);
+    this.socket.once("reconnect_error", connectionErrorHandler);
 
-    this.socket.once("connect_timeout", () => {
-      this.gameUI.setNotification(new NotificationMessage(i18next.t("engine.servers.errorConnection"), null, GameConstants.Setting.ERROR_NOTIF_COLOR, null, null, null, null, true));
-    });
-
-    this.socket.once("reconnect_error", () => {
-      this.gameUI.setNotification(new NotificationMessage(i18next.t("engine.servers.errorConnection"), null, GameConstants.Setting.ERROR_NOTIF_COLOR, null, null, null, null, true));
-    });
-    
     await this.gameUI.startAfterEngineInit();
   }
 
   reset() {
     this.socket.emit("reset");
   }
-  
+
   start() {
     this.socket.emit("start");
   }
-  
+
   stop() {
     this.socket.emit("stop");
   }
@@ -171,7 +150,7 @@ export default class GameControllerSocket extends GameController {
   finish(finish) {
     this.socket.emit(finish ? "finish" : "stop");
   }
-  
+
   pause() {
     this.socket.emit("pause");
   }
