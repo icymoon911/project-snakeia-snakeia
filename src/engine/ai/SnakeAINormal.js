@@ -101,7 +101,11 @@ export default class SnakeAINormal extends SnakeAI {
     const calculatedPath = this.calculatePath(graph, currentPosition, targetPosition);
 
     if(calculatedPath.length < 1) {
-      // If no path found, we try the next fruit
+      // If no path found and no more fruits to try, return null
+      if(this.aiFruitGoalsSorted.length === 0) {
+        return { calculatedPath: null, targetFruit: null };
+      }
+      // Otherwise, we try the next fruit
       return this.updatePath(snake);
     }
 

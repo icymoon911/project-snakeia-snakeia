@@ -459,7 +459,32 @@ export default class Snake {
   }
 
   copy() {
-    const snake = new Snake(this.direction, 3, new Grid(this.grid.width, this.grid.height, false, false), this.player, this.aiLevel, false);
+    // Create a new grid with the same configuration as the original
+    const newGrid = new Grid(
+      this.grid.width,
+      this.grid.height,
+      this.grid.generateWalls,
+      this.grid.borderWalls,
+      this.grid.maze,
+      this.grid.customGrid,
+      this.grid.mazeForceAuto,
+      this.grid.seedGrid,
+      this.grid.seedGame,
+      this.grid.probGoldFruitIncrease
+    );
+
+    // Copy mazeFirstPosition if it exists
+    if(this.grid.mazeFirstPosition) {
+      newGrid.mazeFirstPosition = this.grid.mazeFirstPosition.copy();
+    }
+
+    const snake = new Snake(this.direction, 3, newGrid, this.player, this.aiLevel, false);
+
+    // Initialize the grid structure before copying cells
+    snake.grid.grid = new Array(snake.grid.height);
+    for(let i = 0; i < snake.grid.height; i++) {
+      snake.grid.grid[i] = new Array(snake.grid.width);
+    }
 
     for(let i = 0; i < snake.grid.height; i++) {
       for(let j = 0; j < snake.grid.width; j++) {
